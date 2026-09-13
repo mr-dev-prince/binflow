@@ -1,8 +1,9 @@
 /**
  * Thin wrapper over the Web Serial API. Everything the rest of the app knows
- * about a board comes through here, so a WebUSB or native bridge would replace
- * only this file.
+ * about a serial board comes through here.
  */
+
+import type { Family } from './types'
 
 const VENDORS: Record<number, string> = {
   0x303a: 'Espressif',
@@ -38,6 +39,14 @@ export function describePort(port: SerialPort) {
   return vendor ? `${vendor} · ${ids}` : ids
 }
 
+/** Best guess before any protocol has run. Bridges like CP210x stay unknown and get tried as ESP. */
+export function familyOfPort(port: SerialPort): Family {
+  const { usbVendorId } = port.getInfo()
+  if (usbVendorId === 0x303a) return 'esp'
+  if (usbVendorId === 0x2e8a) return 'rp'
+  return 'unknown'
+}
+
 /** Opens the browser's port picker. Resolves null when the operator cancels. */
 export async function requestPort(): Promise<SerialPort | null> {
   try {
@@ -51,4 +60,14 @@ export async function requestPort(): Promise<SerialPort | null> {
 /** Ports the operator has already granted access to in this origin. */
 export function grantedPorts() {
   return navigator.serial.getPorts()
+}
+
+/**
+ * Pico SDK firmware built with USB stdio reboots into BOOTSEL when its CDC
+ * port is opened at 1200 baud. The board then reappears as a USB device.
+ */
+export async function rebootToBootsel(port: SerialPort) {
+  await port.open({ baudRate: 1200 })
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  await port.close().catch(() => undefined)
 }

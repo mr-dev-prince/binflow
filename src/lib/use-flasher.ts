@@ -1,18 +1,22 @@
 'use client'
 
 import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
-import { FlashAborted, flashDevice } from './flasher'
-import { describePort, grantedPorts, isSerialSupported, requestPort } from './serial'
-import type { Binary, Device, FlashStage, LogEntry, LogLevel } from './types'
+import { FlashAborted, flashDevice, type Target } from './flasher'
+import { ESP_APP_OFFSET } from './image/esp-image'
+import { describePort, familyOfPort, grantedPorts, isSerialSupported, rebootToBootsel, requestPort } from './serial'
+import type { Binary, Device, Family, FlashStage, LogEntry, LogLevel } from './types'
+import { describeUsb, grantedBootsel, isUsbSupported, requestBootsel } from './usb'
 
 const LOG_LIMIT = 400
 
 type State = {
   /** Boards the operator has connected in this screen. */
   devices: Device[]
-  /** Ports the browser knows about that are not connected here yet. */
+  /** Ports and USB devices the browser knows about that are not connected here yet. */
   available: Device[]
   binary: Binary | null
+  /** Where a raw .bin lands on an ESP. */
+  espOffset: number
   logs: LogEntry[]
   running: boolean
   stage: FlashStage | null
@@ -29,6 +33,7 @@ type Action =
   | { type: 'devices/remove'; id: string }
   | { type: 'devices/patch'; id: string; patch: Partial<Device> }
   | { type: 'binary/set'; binary: Binary | null }
+  | { type: 'offset/set'; offset: number }
   | { type: 'log'; at: number; level: LogLevel; scope: string; message: string }
   | { type: 'log/clear' }
   | { type: 'run/start'; at: number }
@@ -38,7 +43,7 @@ type Action =
   | { type: 'run/stop'; at: number }
 
 type Known = {
-  port: SerialPort
+  target: Target
   device: Device
   place: 'available' | 'connected'
   offline: boolean
@@ -65,6 +70,8 @@ function reducer(state: State, action: Action): State {
       }
     case 'binary/set':
       return { ...state, binary: action.binary }
+    case 'offset/set':
+      return { ...state, espOffset: action.offset }
     case 'log': {
       logId += 1
       const entry: LogEntry = {
@@ -108,6 +115,7 @@ const INITIAL: State = {
   devices: [],
   available: [],
   binary: null,
+  espOffset: ESP_APP_OFFSET,
   logs: [],
   running: false,
   stage: null,
@@ -117,11 +125,16 @@ const INITIAL: State = {
   finishedAt: null,
 }
 
+export type Support = { serial: boolean | null; usb: boolean | null }
+
 export function useFlasher() {
   const [state, dispatch] = useReducer(reducer, INITIAL)
   /** null on the server so the first client render matches; the browser answer thereafter. */
-  const supported = useSyncExternalStore(subscribeNever, isSerialSupported, () => null)
-  /** Every port the browser has shown us, with where it currently sits in the UI. */
+  const serial = useSyncExternalStore(subscribeNever, isSerialSupported, () => null)
+  const usb = useSyncExternalStore(subscribeNever, isUsbSupported, () => null)
+  const support: Support = { serial, usb }
+
+  /** Everything the browser has shown us, with where it currently sits in the UI. */
   const knownRef = useRef(new Map<string, Known>())
   const counterRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
@@ -132,15 +145,18 @@ export function useFlasher() {
     [],
   )
 
-  const lookup = (port: SerialPort) => {
-    for (const known of knownRef.current.values()) if (known.port === port) return known
+  const lookup = (target: Target) => {
+    for (const known of knownRef.current.values()) {
+      if (known.target.kind === 'serial' && target.kind === 'serial' && known.target.port === target.port) return known
+      if (known.target.kind === 'usb' && target.kind === 'usb' && known.target.device === target.device) return known
+    }
     return null
   }
 
-  /** Registers a port the browser told us about. New ports wait in the available list. */
+  /** Registers something the browser told us about. New arrivals wait in the available list. */
   const discover = useCallback(
-    (port: SerialPort): Known => {
-      const existing = lookup(port)
+    (target: Target): Known => {
+      const existing = lookup(target)
 
       if (existing) {
         if (existing.place === 'connected' && existing.offline) {
@@ -153,14 +169,23 @@ export function useFlasher() {
       }
 
       counterRef.current += 1
+
+      const described =
+        target.kind === 'serial'
+          ? { detail: describePort(target.port), family: familyOfPort(target.port), chip: undefined }
+          : { ...describeUsb(target.device), family: 'rp' as Family }
+
       const device: Device = {
         id: `board-${counterRef.current}`,
         name: `Board ${counterRef.current}`,
-        detail: describePort(port),
+        detail: described.detail,
+        transport: target.kind,
+        family: described.family,
+        chip: described.chip,
         state: 'ready',
         progress: null,
       }
-      const known: Known = { port, device, place: 'available', offline: false }
+      const known: Known = { target, device, place: 'available', offline: false }
 
       knownRef.current.set(device.id, known)
       dispatch({ type: 'available/add', device })
@@ -185,13 +210,29 @@ export function useFlasher() {
     [log],
   )
 
-  /** Opens the browser's own port picker, then connects whatever the operator chose. */
-  const pickBoard = useCallback(async () => {
+  /** Opens the browser's serial picker, then connects whatever the operator chose. */
+  const pickSerial = useCallback(async () => {
     try {
       const port = await requestPort()
       if (!port) return false
 
-      const known = discover(port)
+      const known = discover({ kind: 'serial', port })
+      if (known.place === 'available') connectBoard(known.device.id)
+
+      return true
+    } catch (error) {
+      log('error', 'board', `Could not connect: ${(error as Error).message}`)
+      return false
+    }
+  }, [connectBoard, discover, log])
+
+  /** Opens the browser's USB picker for a Pico in BOOTSEL mode. */
+  const pickBootsel = useCallback(async () => {
+    try {
+      const device = await requestBootsel()
+      if (!device) return false
+
+      const known = discover({ kind: 'usb', device })
       if (known.place === 'available') connectBoard(known.device.id)
 
       return true
@@ -217,31 +258,83 @@ export function useFlasher() {
     dispatch({ type: 'available/add', device: { ...known.device, state: 'ready', progress: null, note: undefined } })
   }, [])
 
-  /** Revokes the browser permission so the port stops appearing. */
+  /** Revokes the browser permission so the device stops appearing. */
   const forgetBoard = useCallback(async (id: string) => {
     const known = knownRef.current.get(id)
     knownRef.current.delete(id)
     dispatch({ type: 'available/remove', id })
     dispatch({ type: 'devices/remove', id })
+    if (!known) return
 
-    if (known && 'forget' in known.port) {
-      await (known.port as SerialPort & { forget: () => Promise<void> }).forget().catch(() => undefined)
+    if (known.target.kind === 'serial' && 'forget' in known.target.port) {
+      await (known.target.port as SerialPort & { forget: () => Promise<void> }).forget().catch(() => undefined)
+    } else if (known.target.kind === 'usb') {
+      await known.target.device.forget().catch(() => undefined)
     }
   }, [])
 
+  /** Asks a Pico that is running firmware to drop into BOOTSEL. */
+  const rebootBoard = useCallback(
+    async (id: string) => {
+      const known = knownRef.current.get(id)
+      if (!known || known.target.kind !== 'serial') return
+
+      try {
+        await rebootToBootsel(known.target.port)
+        dispatch({ type: 'devices/patch', id, patch: { note: 'Rebooting into BOOTSEL. Add it as a USB device when it reappears' } })
+        log('info', known.device.name, 'Sent the 1200 baud reboot. Add the BOOTSEL device from Connect a board')
+      } catch (error) {
+        log('error', known.device.name, `Could not reboot: ${(error as Error).message}`)
+      }
+    },
+    [log],
+  )
+
   useEffect(() => {
-    if (!isSerialSupported()) {
-      log('warn', 'binflow', 'This browser cannot open serial ports. Use Chrome or Edge on a desktop')
+    const hasSerial = isSerialSupported()
+    const hasUsb = isUsbSupported()
+
+    if (!hasSerial && !hasUsb) {
+      log('warn', 'binflow', 'This browser cannot reach USB or serial devices. Use Chrome or Edge on a desktop')
       return
     }
 
     log('info', 'binflow', 'Waiting for a board')
 
-    grantedPorts().then((ports) => ports.forEach((port) => discover(port)))
+    const cleanups: Array<() => void> = []
 
-    const onConnect = (event: Event) => discover(event.target as SerialPort)
-    const onDisconnect = (event: Event) => {
-      const known = lookup(event.target as SerialPort)
+    if (hasSerial) {
+      grantedPorts().then((ports) => ports.forEach((port) => discover({ kind: 'serial', port })))
+
+      const onConnect = (event: Event) => discover({ kind: 'serial', port: event.target as SerialPort })
+      const onDisconnect = (event: Event) => vanish({ kind: 'serial', port: event.target as SerialPort })
+
+      navigator.serial.addEventListener('connect', onConnect)
+      navigator.serial.addEventListener('disconnect', onDisconnect)
+      cleanups.push(() => {
+        navigator.serial.removeEventListener('connect', onConnect)
+        navigator.serial.removeEventListener('disconnect', onDisconnect)
+      })
+    }
+
+    if (hasUsb) {
+      grantedBootsel().then((devices) => devices.forEach((device) => discover({ kind: 'usb', device })))
+
+      const onConnect = (event: USBConnectionEvent) => {
+        if (event.device.vendorId === 0x2e8a) discover({ kind: 'usb', device: event.device })
+      }
+      const onDisconnect = (event: USBConnectionEvent) => vanish({ kind: 'usb', device: event.device })
+
+      navigator.usb.addEventListener('connect', onConnect)
+      navigator.usb.addEventListener('disconnect', onDisconnect)
+      cleanups.push(() => {
+        navigator.usb.removeEventListener('connect', onConnect)
+        navigator.usb.removeEventListener('disconnect', onDisconnect)
+      })
+    }
+
+    function vanish(target: Target) {
+      const known = lookup(target)
       if (!known) return
 
       if (known.place === 'connected') {
@@ -254,13 +347,7 @@ export function useFlasher() {
       }
     }
 
-    navigator.serial.addEventListener('connect', onConnect)
-    navigator.serial.addEventListener('disconnect', onDisconnect)
-
-    return () => {
-      navigator.serial.removeEventListener('connect', onConnect)
-      navigator.serial.removeEventListener('disconnect', onDisconnect)
-    }
+    return () => cleanups.forEach((cleanup) => cleanup())
   }, [discover, log])
 
   const setBinary = useCallback(
@@ -268,18 +355,22 @@ export function useFlasher() {
       dispatch({ type: 'binary/set', binary })
 
       if (binary) {
-        log('ok', 'firmware', `${binary.name} loaded — ${binary.format.toUpperCase()}, sha256 ${binary.digest.slice(0, 16)}…`)
+        const target = binary.hint.chip ?? (binary.hint.family === 'unknown' ? 'any board' : `${binary.hint.family.toUpperCase()} boards`)
+        log('ok', 'firmware', `${binary.name} loaded — ${binary.format.toUpperCase()} for ${target}, sha256 ${binary.digest.slice(0, 16)}…`)
+        if (binary.hint.problem) log('warn', 'firmware', binary.hint.problem)
       }
     },
     [log],
   )
+
+  const setEspOffset = useCallback((offset: number) => dispatch({ type: 'offset/set', offset }), [])
 
   const clearLog = useCallback(() => dispatch({ type: 'log/clear' }), [])
 
   const abort = useCallback(() => abortRef.current?.abort(), [])
 
   const start = useCallback(async () => {
-    const { binary, devices } = state
+    const { binary, devices, espOffset } = state
     const targets = devices.filter((device) => device.state !== 'offline')
 
     if (!binary || targets.length === 0) return
@@ -288,19 +379,20 @@ export function useFlasher() {
     abortRef.current = controller
 
     dispatch({ type: 'run/start', at: Date.now() })
-    log('info', 'binflow', `Flashing ${targets.length} board${targets.length > 1 ? 's' : ''}`)
+    log('info', 'binflow', `Flashing ${targets.length} board${targets.length > 1 ? 's' : ''} with ${binary.name}`)
 
     for (const target of targets) {
-      const port = knownRef.current.get(target.id)?.port
-      if (!port) continue
+      const known = knownRef.current.get(target.id)
+      if (!known) continue
 
       dispatch({ type: 'run/device', id: target.id })
       dispatch({ type: 'devices/patch', id: target.id, patch: { state: 'busy', progress: 0, note: undefined } })
 
       try {
-        await flashDevice(
-          port,
-          binary,
+        const result = await flashDevice(
+          known.target,
+          target.family,
+          { binary, espOffset },
           {
             onStage: (stage) => dispatch({ type: 'run/stage', stage }),
             onProgress: (progress) => dispatch({ type: 'devices/patch', id: target.id, patch: { progress } }),
@@ -309,7 +401,8 @@ export function useFlasher() {
           controller.signal,
         )
 
-        dispatch({ type: 'devices/patch', id: target.id, patch: { state: 'flashed', progress: 1 } })
+        known.device = { ...known.device, chip: result.chip }
+        dispatch({ type: 'devices/patch', id: target.id, patch: { state: 'flashed', progress: 1, chip: result.chip } })
         dispatch({ type: 'run/finished' })
         log('ok', target.name, 'Done')
       } catch (error) {
@@ -331,12 +424,15 @@ export function useFlasher() {
 
   return {
     state,
-    supported,
+    support,
     connectBoard,
-    pickBoard,
+    pickSerial,
+    pickBootsel,
     releaseBoard,
     forgetBoard,
+    rebootBoard,
     setBinary,
+    setEspOffset,
     clearLog,
     start,
     abort,

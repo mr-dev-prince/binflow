@@ -1,9 +1,22 @@
 import { BoltIcon } from '@/components/ui/icons'
 import { StatusDot } from '@/components/ui/status-dot'
+import type { Support } from '@/lib/use-flasher'
 
-export function AppHeader({ supported }: { supported: boolean | null }) {
-  const tone = supported === true ? 'ok' : supported === false ? 'error' : 'neutral'
-  const label = supported === true ? 'Web Serial ready' : supported === false ? 'Web Serial unavailable' : 'Checking browser'
+export function AppHeader({ support }: { support: Support }) {
+  const pending = support.serial === null || support.usb === null
+  const both = support.serial && support.usb
+  const none = support.serial === false && support.usb === false
+
+  const tone = pending ? 'neutral' : none ? 'error' : both ? 'ok' : 'busy'
+  const label = pending
+    ? 'Checking browser'
+    : none
+      ? 'No device access in this browser'
+      : both
+        ? 'Serial and USB ready'
+        : support.serial
+          ? 'Serial only. No WebUSB for Pico'
+          : 'USB only. No Web Serial for ESP32'
 
   return (
     <header className="flex shrink-0 items-center justify-between gap-4 px-5 py-4 lg:px-6">

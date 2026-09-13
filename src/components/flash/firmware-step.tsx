@@ -7,16 +7,25 @@ import { Step } from '@/components/ui/step'
 import { warningFor } from '@/lib/binary'
 import { formatBytes } from '@/lib/format'
 import type { Binary } from '@/lib/types'
+import { FAMILY_LABEL } from './family'
 
 type FirmwareStepProps = {
   binary: Binary | null
   reading: boolean
   disabled: boolean
+  espOffset: number
+  onEspOffset: (offset: number) => void
   onFile: (file: File) => void
   onClear: () => void
 }
 
-export function FirmwareStep({ binary, reading, disabled, onFile, onClear }: FirmwareStepProps) {
+function targetOf(binary: Binary) {
+  if (binary.hint.chip) return binary.hint.chip
+  if (binary.hint.family !== 'unknown') return FAMILY_LABEL[binary.hint.family]
+  return 'Any board'
+}
+
+export function FirmwareStep({ binary, reading, disabled, espOffset, onEspOffset, onFile, onClear }: FirmwareStepProps) {
   const warning = binary ? warningFor(binary) : null
 
   return (
@@ -30,7 +39,7 @@ export function FirmwareStep({ binary, reading, disabled, onFile, onClear }: Fir
       }
       done={Boolean(binary) && !warning}
       number={2}
-      status={reading ? 'Reading file…' : binary ? 'Ready to write' : 'No file chosen'}
+      status={reading ? 'Reading file…' : binary ? (warning ? 'Cannot be written' : 'Ready to write') : 'No file chosen'}
       title="Firmware"
     >
       {binary ? (
@@ -45,10 +54,11 @@ export function FirmwareStep({ binary, reading, disabled, onFile, onClear }: Fir
             </div>
           </div>
 
-          <dl className="grid grid-cols-3 gap-2">
+          <dl className="grid grid-cols-2 gap-2">
             {[
               ['Size', formatBytes(binary.bytes)],
               ['Format', binary.format.toUpperCase()],
+              ['Target', targetOf(binary)],
               ['SHA-256', binary.digest.slice(0, 8)],
             ].map(([term, value]) => (
               <div className="rounded-2xl border border-line bg-sand/40 px-3 py-2.5" key={term}>
@@ -60,6 +70,26 @@ export function FirmwareStep({ binary, reading, disabled, onFile, onClear }: Fir
             ))}
           </dl>
 
+          {binary.format === 'bin' && binary.hint.family !== 'rp' ? (
+            <label className="flex items-center justify-between gap-3 rounded-2xl border border-line px-3 py-2.5">
+              <span>
+                <span className="block font-mono text-[10px] uppercase tracking-wider text-ink-faint">ESP write offset</span>
+                <span className="block text-xs text-ink-muted">Raw .bin only. A Pico always starts at the flash base.</span>
+              </span>
+              <input
+                className="w-28 rounded-lg border border-line bg-card px-2 py-1 text-right font-mono text-sm text-ink focus:border-caramel focus:outline-none disabled:opacity-60"
+                defaultValue={`0x${espOffset.toString(16).toUpperCase()}`}
+                disabled={disabled}
+                inputMode="text"
+                onChange={(event) => {
+                  const parsed = Number(event.target.value.trim())
+                  if (Number.isFinite(parsed) && parsed >= 0 && parsed % 0x1000 === 0) onEspOffset(parsed)
+                }}
+                spellCheck={false}
+              />
+            </label>
+          ) : null}
+
           {warning ? (
             <p className="flex items-start gap-2 rounded-2xl border border-ember/25 bg-ember/10 px-3 py-2.5 text-sm text-ember">
               <AlertIcon className="mt-0.5 shrink-0" />
@@ -69,10 +99,10 @@ export function FirmwareStep({ binary, reading, disabled, onFile, onClear }: Fir
         </div>
       ) : (
         <FileDrop
-          accept=".bin,.hex,.uf2,.elf"
+          accept=".bin,.uf2,.elf"
           className="flex-1"
           disabled={disabled || reading}
-          hint="bin · hex · uf2"
+          hint="bin · uf2 · elf"
           onFile={onFile}
         />
       )}

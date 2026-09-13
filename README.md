@@ -17,6 +17,22 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## What it flashes
+
+| Board | Connection | Formats | Protocol |
+|---|---|---|---|
+| ESP32, S2, S3, C2, C3, C5, C6, C61, H2, P4 | Web Serial | `.bin`, `.uf2`, `.elf` | ROM bootloader via [esptool-js](https://github.com/espressif/esptool-js) |
+| RP2040, RP2350 (BOOTSEL mode) | WebUSB | `.bin`, `.uf2`, `.elf` | PICOBOOT |
+
+- **ELF** files are converted in the browser: ESP builds become an app image the way `esptool elf2image` does, and Pico builds are written from their loadable program segments.
+- **UF2** files are decoded into address runs. On an ESP a UF2 that carries a partition table is written at absolute offsets; an app-only UF2 is written relative to the app offset.
+- **Raw `.bin`** files go to the flash base on a Pico and to a configurable offset (default `0x10000`) on an ESP.
+- Intel HEX is recognised but not written yet.
+
+A Pico that is running firmware shows up as a serial port. The board card offers a reboot into BOOTSEL (the 1200 baud trick from the Pico SDK), after which it can be added as a USB device.
+
+Requires Chrome or Edge on a desktop. Run `bun test` for the image and protocol unit tests.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

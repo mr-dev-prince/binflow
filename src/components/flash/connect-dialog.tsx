@@ -1,29 +1,43 @@
 'use client'
 
 import { useState } from 'react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PlugIcon, TrashIcon } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/modal'
 import { StatusDot } from '@/components/ui/status-dot'
 import type { Device } from '@/lib/types'
+import type { Support } from '@/lib/use-flasher'
+import { chipLabel } from './family'
 
 type ConnectDialogProps = {
   open: boolean
   available: Device[]
+  support: Support
   onClose: () => void
   onConnect: (id: string) => void
   onForget: (id: string) => void
-  /** Opens the browser's own picker. Resolves true when a board was chosen. */
-  onPick: () => Promise<boolean>
+  /** Open the browser's pickers. Each resolves true when a board was chosen. */
+  onPickSerial: () => Promise<boolean>
+  onPickBootsel: () => Promise<boolean>
 }
 
-export function ConnectDialog({ open, available, onClose, onConnect, onForget, onPick }: ConnectDialogProps) {
-  const [picking, setPicking] = useState(false)
+export function ConnectDialog({
+  open,
+  available,
+  support,
+  onClose,
+  onConnect,
+  onForget,
+  onPickSerial,
+  onPickBootsel,
+}: ConnectDialogProps) {
+  const [picking, setPicking] = useState<'serial' | 'usb' | null>(null)
 
-  const pick = async () => {
-    setPicking(true)
-    const chosen = await onPick()
-    setPicking(false)
+  const pick = async (kind: 'serial' | 'usb') => {
+    setPicking(kind)
+    const chosen = await (kind === 'serial' ? onPickSerial() : onPickBootsel())
+    setPicking(null)
     if (chosen) onClose()
   }
 
@@ -31,11 +45,32 @@ export function ConnectDialog({ open, available, onClose, onConnect, onForget, o
     <Modal
       description="Boards your browser already knows are listed here. Plug one in and it appears on its own."
       footer={
-        <div className="flex flex-col gap-2">
-          <Button className="w-full" disabled={picking} icon={<PlugIcon />} onClick={pick} size="md" variant="primary">
-            {picking ? 'Waiting for your browser…' : 'Find a new board'}
-          </Button>
-          <p className="text-center text-xs text-ink-faint">Your browser will show every serial port it can see.</p>
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              className="w-full"
+              disabled={support.serial !== true || picking !== null}
+              icon={<PlugIcon />}
+              onClick={() => pick('serial')}
+              size="md"
+              variant="primary"
+            >
+              {picking === 'serial' ? 'Waiting…' : 'ESP32 over serial'}
+            </Button>
+            <Button
+              className="w-full"
+              disabled={support.usb !== true || picking !== null}
+              icon={<PlugIcon />}
+              onClick={() => pick('usb')}
+              size="md"
+              variant="primary"
+            >
+              {picking === 'usb' ? 'Waiting…' : 'Pico in BOOTSEL'}
+            </Button>
+          </div>
+          <p className="text-center text-xs leading-relaxed text-ink-faint">
+            ESP boards show up as serial ports. A Pico must be in BOOTSEL mode: hold the button while plugging it in.
+          </p>
         </div>
       }
       onClose={onClose}
@@ -48,7 +83,7 @@ export function ConnectDialog({ open, available, onClose, onConnect, onForget, o
             <PlugIcon className="h-5 w-5" />
           </span>
           <p className="text-sm font-medium text-ink">No boards found yet</p>
-          <p className="max-w-[30ch] text-sm text-ink-muted">Connect one over USB, then find it with the button below.</p>
+          <p className="max-w-[30ch] text-sm text-ink-muted">Connect one over USB, then find it with a button below.</p>
         </div>
       ) : (
         <ul className="pane-scroll -mx-1 flex max-h-72 flex-col gap-2 overflow-y-auto px-1">
@@ -59,7 +94,10 @@ export function ConnectDialog({ open, available, onClose, onConnect, onForget, o
             >
               <StatusDot tone="ready" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-ink">{device.name}</p>
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium text-ink">{device.name}</p>
+                  <Badge tone={device.transport === 'usb' ? 'ready' : 'neutral'}>{chipLabel(device)}</Badge>
+                </div>
                 <p className="truncate font-mono text-[11px] text-ink-muted">{device.detail}</p>
               </div>
               <Button
@@ -76,7 +114,7 @@ export function ConnectDialog({ open, available, onClose, onConnect, onForget, o
                 className="-mr-2"
                 icon={<TrashIcon />}
                 onClick={() => onForget(device.id)}
-                title="Forget this port"
+                title="Forget this device"
                 variant="ghost"
               />
             </li>
