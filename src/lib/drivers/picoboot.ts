@@ -290,7 +290,7 @@ function prepare(binary: Binary, chip: string, log: FlashHandlers['onLog']): Seg
   const flash = segments.filter(inFlash)
   const skipped = segments.length - flash.length
 
-  if (flash.length === 0) throw new Error('This image runs from RAM. binflow writes flash only')
+  if (flash.length === 0) throw new Error('This image runs from RAM. streambits writes flash only')
   if (skipped > 0) log('warn', `Skipping ${skipped} segment${skipped > 1 ? 's' : ''} outside flash`)
 
   return flash

@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "binflow | Flash firmware to your board",
+  title: "streambits | Flash firmware to your board",
   description: "Plug in a board, pick a firmware file, press Flash.",
 };
 

@@ -62,6 +62,23 @@ export function grantedPorts() {
   return navigator.serial.getPorts()
 }
 
+/** A granted port keeps showing up after it is unplugged, so ask whether it is really there. */
+export function isPortPresent(port: SerialPort) {
+  return port.connected !== false
+}
+
+/**
+ * Pulses the reset line of an open port so the board reboots and prints its
+ * boot log again. RTS drives EN on the usual ESP auto-reset circuit; DTR stays
+ * clear so the chip starts the app rather than the bootloader. Boards wired
+ * without that circuit, native USB included, simply ignore it.
+ */
+export async function pulseReset(port: SerialPort) {
+  await port.setSignals({ dataTerminalReady: false, requestToSend: true })
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  await port.setSignals({ requestToSend: false })
+}
+
 /**
  * Pico SDK firmware built with USB stdio reboots into BOOTSEL when its CDC
  * port is opened at 1200 baud. The board then reappears as a USB device.

@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import { FlashAborted, flashDevice, type Target } from './flasher'
-import { ESP_APP_OFFSET } from './image/esp-image'
-import { describePort, familyOfPort, grantedPorts, isSerialSupported, rebootToBootsel, requestPort } from './serial'
+import { ESP_APP_OFFSET, ESP_FLASH_BASE, isFullFlashImage } from './image/esp-image'
+import { monitor } from './monitor'
+import { describePort, familyOfPort, grantedPorts, isPortPresent, isSerialSupported, rebootToBootsel, requestPort } from './serial'
 import type { Binary, Device, Family, FlashStage, LogEntry, LogLevel } from './types'
-import { describeUsb, grantedBootsel, isUsbSupported, requestBootsel } from './usb'
+import { describeUsb, grantedBootsel, isSameUsb, isUsbSupported, requestBootsel } from './usb'
 
 const LOG_LIMIT = 400
 
@@ -133,6 +134,7 @@ export function useFlasher() {
   const serial = useSyncExternalStore(subscribeNever, isSerialSupported, () => null)
   const usb = useSyncExternalStore(subscribeNever, isUsbSupported, () => null)
   const support: Support = { serial, usb }
+  const monitorState = useSyncExternalStore(monitor.subscribe, monitor.getSnapshot, monitor.getServerSnapshot)
 
   /** Everything the browser has shown us, with where it currently sits in the UI. */
   const knownRef = useRef(new Map<string, Known>())
@@ -148,7 +150,7 @@ export function useFlasher() {
   const lookup = (target: Target) => {
     for (const known of knownRef.current.values()) {
       if (known.target.kind === 'serial' && target.kind === 'serial' && known.target.port === target.port) return known
-      if (known.target.kind === 'usb' && target.kind === 'usb' && known.target.device === target.device) return known
+      if (known.target.kind === 'usb' && target.kind === 'usb' && isSameUsb(known.target.device, target.device)) return known
     }
     return null
   }
@@ -159,6 +161,9 @@ export function useFlasher() {
       const existing = lookup(target)
 
       if (existing) {
+        // A replug hands us a new port or device object; the old one is dead.
+        existing.target = target
+
         if (existing.place === 'connected' && existing.offline) {
           existing.offline = false
           dispatch({ type: 'devices/patch', id: existing.device.id, patch: { state: 'ready', progress: null, note: undefined } })
@@ -247,6 +252,7 @@ export function useFlasher() {
     const known = knownRef.current.get(id)
     if (!known || known.place !== 'connected') return
 
+    void monitor.detachDevice(id)
     dispatch({ type: 'devices/remove', id })
 
     if (known.offline) {
@@ -261,6 +267,7 @@ export function useFlasher() {
   /** Revokes the browser permission so the device stops appearing. */
   const forgetBoard = useCallback(async (id: string) => {
     const known = knownRef.current.get(id)
+    await monitor.detachDevice(id)
     knownRef.current.delete(id)
     dispatch({ type: 'available/remove', id })
     dispatch({ type: 'devices/remove', id })
@@ -280,6 +287,7 @@ export function useFlasher() {
       if (!known || known.target.kind !== 'serial') return
 
       try {
+        await monitor.detachDevice(id)
         await rebootToBootsel(known.target.port)
         dispatch({ type: 'devices/patch', id, patch: { note: 'Rebooting into BOOTSEL. Add it as a USB device when it reappears' } })
         log('info', known.device.name, 'Sent the 1200 baud reboot. Add the BOOTSEL device from Connect a board')
@@ -290,16 +298,94 @@ export function useFlasher() {
     [log],
   )
 
+  /**
+   * Asks the browser for its devices again. A board that was plugged back in
+   * without a connect event reaching us — a slow hub, a Pico that returned in
+   * BOOTSEL mode as a different device — turns up here.
+   */
+  const recheckBoard = useCallback(
+    async (id: string) => {
+      const known = knownRef.current.get(id)
+      if (!known || !known.offline) return
+
+      log('info', known.device.name, 'Looking for it again')
+
+      try {
+        if (isSerialSupported()) {
+          const ports = await grantedPorts()
+          ports.filter(isPortPresent).forEach((port) => discover({ kind: 'serial', port }))
+        }
+
+        if (isUsbSupported()) {
+          const devices = await grantedBootsel()
+          devices.forEach((device) => discover({ kind: 'usb', device }))
+        }
+      } catch (error) {
+        log('error', known.device.name, `Could not look for it: ${(error as Error).message}`)
+        return
+      }
+
+      // discover() clears the flag the moment it recognises the board.
+      if (!known.offline) return
+
+      const note =
+        known.device.family === 'rp'
+          ? 'Still not here. Hold BOOTSEL while plugging it in, then add it as a new board'
+          : 'Still not here. Try the cable again or another USB port'
+
+      dispatch({ type: 'devices/patch', id, patch: { note } })
+      log('warn', known.device.name, note)
+    },
+    [discover, log],
+  )
+
+  /** Opens the port and starts reading whatever the board prints. */
+  const startMonitor = useCallback(
+    async (id: string) => {
+      const known = knownRef.current.get(id)
+      if (!known) return
+
+      if (known.target.kind !== 'serial') {
+        log('warn', known.device.name, 'A board in BOOTSEL mode has no serial console')
+        return
+      }
+
+      try {
+        await monitor.attach(id, known.target.port)
+        log('ok', known.device.name, `Serial monitor open at ${monitor.getSnapshot().baud} baud`)
+      } catch (error) {
+        log('error', known.device.name, `Could not open the serial monitor: ${(error as Error).message}`)
+      }
+    },
+    [log],
+  )
+
+  const stopMonitor = useCallback(async () => {
+    const id = monitor.watching
+    await monitor.detach()
+    if (id) log('info', knownRef.current.get(id)?.device.name ?? 'board', 'Serial monitor closed')
+  }, [log])
+
+  const selectMonitorBoard = useCallback((id: string) => monitor.select(id), [])
+
+  const setMonitorBaud = useCallback(async (baud: number) => {
+    await monitor.setBaud(baud)
+  }, [])
+
+  const clearMonitor = useCallback(() => monitor.clear(), [])
+
+  const resetMonitored = useCallback(() => monitor.reset(), [])
+
   useEffect(() => {
     const hasSerial = isSerialSupported()
     const hasUsb = isUsbSupported()
 
     if (!hasSerial && !hasUsb) {
-      log('warn', 'binflow', 'This browser cannot reach USB or serial devices. Use Chrome or Edge on a desktop')
+      log('warn', 'streambits', 'This browser cannot reach USB or serial devices. Use Chrome or Edge on a desktop')
       return
     }
 
-    log('info', 'binflow', 'Waiting for a board')
+    log('info', 'streambits', 'Waiting for a board')
 
     const cleanups: Array<() => void> = []
 
@@ -339,7 +425,8 @@ export function useFlasher() {
 
       if (known.place === 'connected') {
         known.offline = true
-        dispatch({ type: 'devices/patch', id: known.device.id, patch: { state: 'offline', progress: null, note: 'Unplugged' } })
+        void monitor.detachDevice(known.device.id)
+        dispatch({ type: 'devices/patch', id: known.device.id, patch: { state: 'offline', progress: null, note: undefined } })
         log('warn', known.device.name, 'Unplugged')
       } else {
         knownRef.current.delete(known.device.id)
@@ -358,6 +445,21 @@ export function useFlasher() {
         const target = binary.hint.chip ?? (binary.hint.family === 'unknown' ? 'any board' : `${binary.hint.family.toUpperCase()} boards`)
         log('ok', 'firmware', `${binary.name} loaded — ${binary.format.toUpperCase()} for ${target}, sha256 ${binary.digest.slice(0, 16)}…`)
         if (binary.hint.problem) log('warn', 'firmware', binary.hint.problem)
+
+        // A raw .bin says nothing about where it belongs, so read it rather than
+        // leave the offset on whatever the last file needed. Set on both paths:
+        // carrying 0x0 over to an app image is as wrong as the other way round.
+        if (binary.format === 'bin' && binary.hint.family !== 'rp') {
+          const whole = isFullFlashImage(binary.data)
+          dispatch({ type: 'offset/set', offset: whole ? ESP_FLASH_BASE : ESP_APP_OFFSET })
+          log(
+            'info',
+            'firmware',
+            whole
+              ? 'Full flash image — bootloader and partition table included. Writing at 0x0'
+              : 'App image only. Writing at 0x10000',
+          )
+        }
       }
     },
     [log],
@@ -375,11 +477,20 @@ export function useFlasher() {
 
     if (!binary || targets.length === 0) return
 
+    // Only one holder per port: the monitor steps aside for the run and comes
+    // back when it is over, which is when the boot log is worth reading.
+    const watched = monitor.watching
+
+    if (watched) {
+      monitor.note('paused for flashing')
+      await monitor.detach()
+    }
+
     const controller = new AbortController()
     abortRef.current = controller
 
     dispatch({ type: 'run/start', at: Date.now() })
-    log('info', 'binflow', `Flashing ${targets.length} board${targets.length > 1 ? 's' : ''} with ${binary.name}`)
+    log('info', 'streambits', `Flashing ${targets.length} board${targets.length > 1 ? 's' : ''} with ${binary.name}`)
 
     for (const target of targets) {
       const known = knownRef.current.get(target.id)
@@ -418,6 +529,16 @@ export function useFlasher() {
 
     abortRef.current = null
     dispatch({ type: 'run/stop', at: Date.now() })
+
+    const known = watched ? knownRef.current.get(watched) : undefined
+
+    if (watched && known?.target.kind === 'serial' && !known.offline) {
+      // The board has just been reset, so let the port settle before reopening.
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      await monitor
+        .attach(watched, known.target.port)
+        .catch((error: Error) => log('warn', known.device.name, `Serial monitor did not reopen: ${error.message}`))
+    }
   }, [log, state])
 
   useEffect(() => () => abortRef.current?.abort(), [])
@@ -425,12 +546,20 @@ export function useFlasher() {
   return {
     state,
     support,
+    monitor: monitorState,
     connectBoard,
     pickSerial,
     pickBootsel,
     releaseBoard,
     forgetBoard,
     rebootBoard,
+    recheckBoard,
+    startMonitor,
+    stopMonitor,
+    selectMonitorBoard,
+    setMonitorBaud,
+    clearMonitor,
+    resetMonitored,
     setBinary,
     setEspOffset,
     clearLog,

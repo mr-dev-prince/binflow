@@ -31,6 +31,12 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 A Pico that is running firmware shows up as a serial port. The board card offers a reboot into BOOTSEL (the 1200 baud trick from the Pico SDK), after which it can be added as a USB device.
 
+## Serial monitor
+
+The Serial tab of the activity sheet reads whatever a board prints on its serial port: pick the board and a baud rate, press **Read**, and the lines land in the pane. **Reset board** pulses the reset line so the boot log is not missed, which boards wired for auto-reset answer and native-USB ones ignore. ANSI colour codes are stripped and ESP-IDF warnings and errors are tinted.
+
+A port can only be open once, so the monitor steps aside for a flash and reopens when the run is over — the chip has just been reset by then, so its boot log arrives on its own. A Pico in BOOTSEL mode is a USB device with no console and cannot be read.
+
 Requires Chrome or Edge on a desktop. Run `bun test` for the image and protocol unit tests.
 
 ## Learn More

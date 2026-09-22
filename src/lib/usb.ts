@@ -25,6 +25,17 @@ export function describeUsb(device: USBDevice) {
   return { chip, detail: `${chip} BOOTSEL · ${ids}` }
 }
 
+/**
+ * A replugged board comes back as a fresh USBDevice, so object identity is not
+ * enough to recognise it. The serial number is burned into the chip.
+ */
+export function isSameUsb(a: USBDevice, b: USBDevice) {
+  if (a === b) return true
+  if (!a.serialNumber || a.serialNumber !== b.serialNumber) return false
+
+  return a.vendorId === b.vendorId && a.productId === b.productId
+}
+
 /** Opens the browser's USB picker filtered to BOOTSEL devices. Null when cancelled. */
 export async function requestBootsel(): Promise<USBDevice | null> {
   try {

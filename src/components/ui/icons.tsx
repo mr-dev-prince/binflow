@@ -85,6 +85,18 @@ export const ChevronIcon = (props: IconProps) => (
   </Svg>
 )
 
+export const ExpandIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" />
+  </Svg>
+)
+
+export const CollapseIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M4 9h5V4M20 9h-5V4M20 15h-5v5M4 15h5v5" />
+  </Svg>
+)
+
 export const PlugIcon = (props: IconProps) => (
   <Svg {...props}>
     <path d="M9 3v5M15 3v5" />

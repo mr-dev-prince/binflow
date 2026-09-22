@@ -28,9 +28,19 @@ type BoardStepProps = {
   onOpenPicker: () => void
   onRelease: (id: string) => void
   onReboot: (id: string) => void
+  onRecheck: (id: string) => void
 }
 
-export function BoardStep({ devices, availableCount, support, running, onOpenPicker, onRelease, onReboot }: BoardStepProps) {
+export function BoardStep({
+  devices,
+  availableCount,
+  support,
+  running,
+  onOpenPicker,
+  onRelease,
+  onReboot,
+  onRecheck,
+}: BoardStepProps) {
   const online = devices.filter((device) => device.state !== 'offline').length
   const supported = support.serial === true || support.usb === true
   const unsupported = support.serial === false && support.usb === false
@@ -63,7 +73,7 @@ export function BoardStep({ devices, availableCount, support, running, onOpenPic
       {unsupported ? (
         <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-line bg-sand/30">
           <EmptyState icon={<PlugIcon className="h-5 w-5" />} title="This browser cannot reach USB boards">
-            Open binflow in Chrome or Edge on a desktop computer.
+            Open streambits in Chrome or Edge on a desktop computer.
           </EmptyState>
         </div>
       ) : devices.length === 0 ? (
@@ -110,6 +120,14 @@ export function BoardStep({ devices, availableCount, support, running, onOpenPic
                 </div>
                 {device.state === 'busy' && device.progress !== null ? (
                   <ProgressBar label={`${device.name} progress`} tone="busy" value={device.progress} />
+                ) : null}
+                {device.state === 'offline' ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-sand/50 px-3 py-2">
+                    <p className="text-xs leading-relaxed text-ink-muted">Plug this board back in, then look for it again.</p>
+                    <Button disabled={running} icon={<RefreshIcon />} onClick={() => onRecheck(device.id)}>
+                      Check again
+                    </Button>
+                  </div>
                 ) : null}
                 {needsBootsel ? (
                   <div className="flex items-center justify-between gap-3 rounded-xl border border-caramel/25 bg-caramel/10 px-3 py-2">

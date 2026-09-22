@@ -23,12 +23,20 @@ const Home = () => {
   const {
     state,
     support,
+    monitor,
     connectBoard,
     pickSerial,
     pickBootsel,
     releaseBoard,
     forgetBoard,
     rebootBoard,
+    recheckBoard,
+    startMonitor,
+    stopMonitor,
+    selectMonitorBoard,
+    setMonitorBaud,
+    clearMonitor,
+    resetMonitored,
     setBinary,
     setEspOffset,
     clearLog,
@@ -42,6 +50,8 @@ const Home = () => {
   const { devices, available, binary, espOffset, logs, running, stage, activeId, finished, startedAt, finishedAt } = state
 
   const targets = devices.filter((device) => device.state !== 'offline')
+  /** Only a serial board prints anything; a Pico in BOOTSEL has no console. */
+  const serialBoards = targets.filter((device) => device.transport === 'serial')
   const elapsed = useElapsed(startedAt, finishedAt, running)
 
   const active = activeId ? devices.find((device) => device.id === activeId) : undefined
@@ -88,6 +98,7 @@ const Home = () => {
           devices={devices}
           onOpenPicker={() => setPickerOpen(true)}
           onReboot={rebootBoard}
+          onRecheck={recheckBoard}
           onRelease={releaseBoard}
           running={running}
           support={support}
@@ -119,7 +130,19 @@ const Home = () => {
         />
       </main>
 
-      <ActivityLog entries={logs} onClear={clearLog} />
+      <ActivityLog
+        entries={logs}
+        monitor={monitor}
+        monitorBoards={serialBoards}
+        onClear={clearLog}
+        onClearMonitor={clearMonitor}
+        onMonitorBaud={setMonitorBaud}
+        onResetBoard={resetMonitored}
+        onSelectBoard={selectMonitorBoard}
+        onStartMonitor={startMonitor}
+        onStopMonitor={stopMonitor}
+        running={running}
+      />
 
       <ConnectDialog
         available={available}
