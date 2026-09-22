@@ -7,7 +7,7 @@ export type Family = 'esp' | 'rp' | 'unknown'
 
 export type Device = {
   id: string
-  /** "Board 1", "Board 2"… stable for the life of the page. */
+  /** Always "Board". Boards are told apart by their detail line, never a number. */
   name: string
   /** Vendor and USB ids when the port exposes them. */
   detail: string

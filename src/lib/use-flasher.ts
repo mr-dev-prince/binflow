@@ -161,7 +161,9 @@ export function useFlasher() {
       const existing = lookup(target)
 
       if (existing) {
-        // A replug hands us a new port or device object; the old one is dead.
+        // A replug hands us a new port or device object; the old one is dead. Only
+        // a USB device carries a serial number, so a serial board that comes back
+        // is usually a stranger to lookup() and lands in the available list.
         existing.target = target
 
         if (existing.place === 'connected' && existing.offline) {
@@ -182,7 +184,7 @@ export function useFlasher() {
 
       const device: Device = {
         id: `board-${counterRef.current}`,
-        name: `Board ${counterRef.current}`,
+        name: 'Board',
         detail: described.detail,
         transport: target.kind,
         family: described.family,
@@ -298,47 +300,6 @@ export function useFlasher() {
     [log],
   )
 
-  /**
-   * Asks the browser for its devices again. A board that was plugged back in
-   * without a connect event reaching us — a slow hub, a Pico that returned in
-   * BOOTSEL mode as a different device — turns up here.
-   */
-  const recheckBoard = useCallback(
-    async (id: string) => {
-      const known = knownRef.current.get(id)
-      if (!known || !known.offline) return
-
-      log('info', known.device.name, 'Looking for it again')
-
-      try {
-        if (isSerialSupported()) {
-          const ports = await grantedPorts()
-          ports.filter(isPortPresent).forEach((port) => discover({ kind: 'serial', port }))
-        }
-
-        if (isUsbSupported()) {
-          const devices = await grantedBootsel()
-          devices.forEach((device) => discover({ kind: 'usb', device }))
-        }
-      } catch (error) {
-        log('error', known.device.name, `Could not look for it: ${(error as Error).message}`)
-        return
-      }
-
-      // discover() clears the flag the moment it recognises the board.
-      if (!known.offline) return
-
-      const note =
-        known.device.family === 'rp'
-          ? 'Still not here. Hold BOOTSEL while plugging it in, then add it as a new board'
-          : 'Still not here. Try the cable again or another USB port'
-
-      dispatch({ type: 'devices/patch', id, patch: { note } })
-      log('warn', known.device.name, note)
-    },
-    [discover, log],
-  )
-
   /** Opens the port and starts reading whatever the board prints. */
   const startMonitor = useCallback(
     async (id: string) => {
@@ -390,7 +351,7 @@ export function useFlasher() {
     const cleanups: Array<() => void> = []
 
     if (hasSerial) {
-      grantedPorts().then((ports) => ports.forEach((port) => discover({ kind: 'serial', port })))
+      grantedPorts().then((ports) => ports.filter(isPortPresent).forEach((port) => discover({ kind: 'serial', port })))
 
       const onConnect = (event: Event) => discover({ kind: 'serial', port: event.target as SerialPort })
       const onDisconnect = (event: Event) => vanish({ kind: 'serial', port: event.target as SerialPort })
@@ -427,7 +388,7 @@ export function useFlasher() {
         known.offline = true
         void monitor.detachDevice(known.device.id)
         dispatch({ type: 'devices/patch', id: known.device.id, patch: { state: 'offline', progress: null, note: undefined } })
-        log('warn', known.device.name, 'Unplugged')
+        log('warn', known.device.name, 'Unplugged. Plug it back in, then select it again')
       } else {
         knownRef.current.delete(known.device.id)
         dispatch({ type: 'available/remove', id: known.device.id })
@@ -492,6 +453,9 @@ export function useFlasher() {
     dispatch({ type: 'run/start', at: Date.now() })
     log('info', 'streambits', `Flashing ${targets.length} board${targets.length > 1 ? 's' : ''} with ${binary.name}`)
 
+    let failed = 0
+    let stopped = false
+
     for (const target of targets) {
       const known = knownRef.current.get(target.id)
       if (!known) continue
@@ -523,12 +487,24 @@ export function useFlasher() {
         dispatch({ type: 'devices/patch', id: target.id, patch: { state: 'failed', progress: null, note } })
         log(aborted ? 'warn' : 'error', target.name, note)
 
-        if (aborted) break
+        failed += 1
+
+        if (aborted) {
+          stopped = true
+          break
+        }
       }
     }
 
     abortRef.current = null
     dispatch({ type: 'run/stop', at: Date.now() })
+
+    // The file has done its job once every board holds it; the next batch wants
+    // a fresh choice. A failed or stopped run keeps it so the operator can retry.
+    if (!stopped && failed === 0) {
+      dispatch({ type: 'binary/set', binary: null })
+      log('info', 'firmware', `${binary.name} is on every board. Cleared, ready for the next file`)
+    }
 
     const known = watched ? knownRef.current.get(watched) : undefined
 
@@ -553,7 +529,6 @@ export function useFlasher() {
     releaseBoard,
     forgetBoard,
     rebootBoard,
-    recheckBoard,
     startMonitor,
     stopMonitor,
     selectMonitorBoard,

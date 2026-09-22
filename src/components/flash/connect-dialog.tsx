@@ -68,7 +68,7 @@ export function ConnectDialog({
               {picking === 'usb' ? 'Waiting…' : 'Pico in BOOTSEL'}
             </Button>
           </div>
-          <p className="text-center text-xs leading-relaxed text-ink-faint">
+          <p className="text-center text-xs leading-relaxed text-muted-foreground/60">
             ESP boards show up as serial ports. A Pico must be in BOOTSEL mode: hold the button while plugging it in.
           </p>
         </div>
@@ -78,27 +78,27 @@ export function ConnectDialog({
       title="Connect a board"
     >
       {available.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-line bg-sand/40 px-4 py-8 text-center">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sand text-cocoa">
+        <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-4 py-8 text-center">
+          <span className="flex h-11 w-11 items-center justify-center rounded-md bg-primary/10 text-primary">
             <PlugIcon className="h-5 w-5" />
           </span>
-          <p className="text-sm font-medium text-ink">No boards found yet</p>
-          <p className="max-w-[30ch] text-sm text-ink-muted">Connect one over USB, then find it with a button below.</p>
+          <p className="text-sm text-foreground">No boards found yet</p>
+          <p className="max-w-[30ch] text-sm text-muted-foreground">Connect one over USB, then find it with a button below.</p>
         </div>
       ) : (
         <ul className="pane-scroll -mx-1 flex max-h-72 flex-col gap-2 overflow-y-auto px-1">
           {available.map((device) => (
             <li
-              className="flex items-center gap-3 rounded-2xl border border-line bg-paper/70 px-4 py-3 transition-colors hover:border-ink-faint"
+              className="flex items-center gap-3 rounded-md border border-border bg-background px-4 py-3 transition-colors hover:border-muted-foreground/40"
               key={device.id}
             >
               <StatusDot tone="ready" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-medium text-ink">{device.name}</p>
+                  <p className="truncate text-sm text-foreground">{device.name}</p>
                   <Badge tone={device.transport === 'usb' ? 'ready' : 'neutral'}>{chipLabel(device)}</Badge>
                 </div>
-                <p className="truncate font-mono text-[11px] text-ink-muted">{device.detail}</p>
+                <p className="truncate font-mono text-[11px] text-muted-foreground">{device.detail}</p>
               </div>
               <Button
                 onClick={() => {

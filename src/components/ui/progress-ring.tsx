@@ -3,11 +3,11 @@ import { cx } from '@/lib/cx'
 import type { Tone } from './badge'
 
 const TONES: Record<Tone, string> = {
-  neutral: 'text-ink-faint',
-  ready: 'text-caramel',
-  busy: 'text-ember',
-  ok: 'text-moss',
-  error: 'text-brick',
+  neutral: 'text-muted-foreground/40',
+  ready: 'text-foreground',
+  busy: 'text-playarka-500',
+  ok: 'text-success',
+  error: 'text-destructive',
 }
 
 type ProgressRingProps = {
@@ -37,7 +37,7 @@ export function ProgressRing({ value, tone = 'busy', size = 176, stroke = 8, lab
     >
       <svg className="-rotate-90" height={size} viewBox={`0 0 ${size} ${size}`} width={size}>
         <circle
-          className="text-sand"
+          className="text-primary/10"
           cx={size / 2}
           cy={size / 2}
           fill="none"

@@ -3,20 +3,24 @@ import { cx } from '@/lib/cx'
 
 export type Tone = 'neutral' | 'ready' | 'busy' | 'ok' | 'error'
 
-const TONES: Record<Tone, string> = {
-  neutral: 'border-line bg-sand text-ink-muted',
-  ready: 'border-caramel/25 bg-caramel/10 text-caramel',
-  busy: 'border-ember/25 bg-ember/10 text-ember',
-  ok: 'border-moss/25 bg-moss/10 text-moss',
-  error: 'border-brick/25 bg-brick/10 text-brick',
+/**
+ * Status tones on the Playarka palette: ink for a settled board, brand orange
+ * for one being written, green for a finished write, red for a failed one.
+ */
+export const TONE_CLASSES: Record<Tone, string> = {
+  neutral: 'border-border bg-muted text-muted-foreground',
+  ready: 'border-border bg-card text-foreground',
+  busy: 'border-playarka-500/25 bg-playarka-500/10 text-playarka-500',
+  ok: 'border-success/25 bg-success/10 text-success',
+  error: 'border-destructive/25 bg-destructive/10 text-destructive',
 }
 
 export function Badge({ tone = 'neutral', children }: { tone?: Tone; children: ReactNode }) {
   return (
     <span
       className={cx(
-        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4 tabular-nums',
-        TONES[tone],
+        'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] leading-4 tabular-nums',
+        TONE_CLASSES[tone],
       )}
     >
       {children}

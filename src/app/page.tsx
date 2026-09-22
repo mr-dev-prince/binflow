@@ -30,7 +30,6 @@ const Home = () => {
     releaseBoard,
     forgetBoard,
     rebootBoard,
-    recheckBoard,
     startMonitor,
     stopMonitor,
     selectMonitorBoard,
@@ -89,7 +88,7 @@ const Home = () => {
   }
 
   return (
-    <div className="paper flex h-dvh flex-col overflow-hidden text-ink">
+    <div className="brand-wash flex h-dvh flex-col overflow-hidden text-foreground">
       <AppHeader support={support} />
 
       <main className="pane-scroll grid min-h-0 flex-1 gap-4 overflow-y-auto px-4 pb-4 lg:grid-cols-[1fr_1fr_1.2fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden lg:px-6 lg:pb-6">
@@ -98,7 +97,10 @@ const Home = () => {
           devices={devices}
           onOpenPicker={() => setPickerOpen(true)}
           onReboot={rebootBoard}
-          onRecheck={recheckBoard}
+          onReselect={(id) => {
+            releaseBoard(id)
+            setPickerOpen(true)
+          }}
           onRelease={releaseBoard}
           running={running}
           support={support}
@@ -106,6 +108,7 @@ const Home = () => {
 
         <FirmwareStep
           binary={binary}
+          blocker={targets.length === 0 ? 'Connect a board first' : null}
           disabled={running}
           espOffset={espOffset}
           onClear={() => setBinary(null)}

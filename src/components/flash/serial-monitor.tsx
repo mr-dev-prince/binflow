@@ -9,14 +9,14 @@ import { BAUD_RATES, type MonitorSnapshot } from '@/lib/monitor'
 import type { Device } from '@/lib/types'
 
 const FIELD =
-  'rounded-lg border border-line bg-card px-2 py-1 font-mono text-[11px] text-ink focus:border-caramel focus:outline-none disabled:opacity-60'
+  'rounded-sm border border-input bg-background px-2 py-1 font-mono text-[11px] text-foreground focus:bg-muted outline-none disabled:cursor-not-allowed disabled:opacity-50'
 
 /** ESP-IDF puts its level first: "E (1234) wifi: …". Our own notes are dashed. */
 function toneOf(text: string) {
-  if (text.startsWith('—')) return 'text-ink-faint'
-  if (/^E \(\d/.test(text)) return 'text-brick'
-  if (/^W \(\d/.test(text)) return 'text-ember'
-  return 'text-cocoa'
+  if (text.startsWith('—')) return 'text-muted-foreground/60'
+  if (/^E \(\d/.test(text)) return 'text-destructive'
+  if (/^W \(\d/.test(text)) return 'text-playarka-500'
+  return 'text-foreground'
 }
 
 type SerialMonitorProps = {
@@ -49,10 +49,10 @@ export function SerialMonitor({ snapshot, boards, running, full, onSelect, onSta
   }, [lines])
 
   return (
-    <div className={cx('flex flex-col border-t border-line', full ? 'min-h-0 flex-1' : 'h-56')}>
+    <div className={cx('flex flex-col border-t border-border', full ? 'min-h-0 flex-1' : 'h-56')}>
       <div className="flex shrink-0 items-center gap-2 px-5 py-2 lg:px-6">
         {boards.length === 0 ? (
-          <p className="text-xs text-ink-muted">
+          <p className="text-xs text-muted-foreground">
             No board with a serial console is connected. A Pico in BOOTSEL mode does not have one.
           </p>
         ) : (
@@ -66,7 +66,7 @@ export function SerialMonitor({ snapshot, boards, running, full, onSelect, onSta
             >
               {boards.map((board) => (
                 <option key={board.id} value={board.id}>
-                  {board.name}
+                  {board.name} · {board.detail}
                 </option>
               ))}
             </select>
@@ -104,7 +104,7 @@ export function SerialMonitor({ snapshot, boards, running, full, onSelect, onSta
               </Button>
             )}
 
-            <p className={cx('min-w-0 flex-1 truncate text-xs', error ? 'text-brick' : 'text-ink-muted')}>
+            <p className={cx('min-w-0 flex-1 truncate text-xs', error ? 'text-destructive' : 'text-muted-foreground')}>
               {error ??
                 (listening
                   ? `Reading ${reading?.name ?? 'the board'} at ${baud} baud`
@@ -125,7 +125,7 @@ export function SerialMonitor({ snapshot, boards, running, full, onSelect, onSta
         ref={listRef}
       >
         {lines.length === 0 ? (
-          <p className="px-5 text-ink-faint lg:px-6">
+          <p className="px-5 text-muted-foreground/60 lg:px-6">
             {listening ? 'Waiting for output. Reset the board to catch its boot log.' : 'Nothing read yet.'}
           </p>
         ) : (
@@ -135,11 +135,11 @@ export function SerialMonitor({ snapshot, boards, running, full, onSelect, onSta
                 'flex gap-3 px-5 lg:px-6',
                 // Striped by the line's own id, not its index: the pattern would
                 // flip on every render once the buffer starts dropping lines.
-                line.id % 2 === 0 ? 'bg-sand/70' : undefined,
+                line.id % 2 === 0 ? 'bg-muted/70' : undefined,
               )}
               key={line.id}
             >
-              <span className="shrink-0 text-ink-faint">{formatClock(line.at)}</span>
+              <span className="shrink-0 text-muted-foreground/60">{formatClock(line.at)}</span>
               <span className={cx('min-w-0 whitespace-pre-wrap break-words', toneOf(line.text))}>{line.text}</span>
             </p>
           ))

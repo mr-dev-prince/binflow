@@ -12,7 +12,10 @@ import { FAMILY_LABEL } from './family'
 type FirmwareStepProps = {
   binary: Binary | null
   reading: boolean
+  /** True while a run is in flight. */
   disabled: boolean
+  /** Why the step cannot be used yet, e.g. no board connected. Null when it can. */
+  blocker: string | null
   espOffset: number
   onEspOffset: (offset: number) => void
   onFile: (file: File) => void
@@ -25,32 +28,36 @@ function targetOf(binary: Binary) {
   return 'Any board'
 }
 
-export function FirmwareStep({ binary, reading, disabled, espOffset, onEspOffset, onFile, onClear }: FirmwareStepProps) {
+export function FirmwareStep({ binary, reading, disabled, blocker, espOffset, onEspOffset, onFile, onClear }: FirmwareStepProps) {
   const warning = binary ? warningFor(binary) : null
+  const off = disabled || blocker !== null
 
   return (
     <Step
       actions={
         binary ? (
-          <Button disabled={disabled} onClick={onClear}>
+          <Button disabled={off} onClick={onClear}>
             Change
           </Button>
         ) : undefined
       }
+      disabled={blocker !== null}
       done={Boolean(binary) && !warning}
       number={2}
-      status={reading ? 'Reading file…' : binary ? (warning ? 'Cannot be written' : 'Ready to write') : 'No file chosen'}
+      status={
+        reading ? 'Reading file…' : blocker ?? (binary ? (warning ? 'Cannot be written' : 'Ready to write') : 'No file chosen')
+      }
       title="Firmware"
     >
       {binary ? (
         <div className="flex flex-1 flex-col gap-3">
-          <div className="flex items-center gap-3 rounded-2xl border border-line bg-paper/70 px-4 py-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sand text-cocoa">
+          <div className="flex items-center gap-3 rounded-md border border-border bg-background px-4 py-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
               <FileIcon className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-ink">{binary.name}</p>
-              <p className="text-xs text-ink-muted">Loaded {new Date(binary.loadedAt).toLocaleTimeString()}</p>
+              <p className="truncate text-sm text-foreground">{binary.name}</p>
+              <p className="text-xs text-muted-foreground">Loaded {new Date(binary.loadedAt).toLocaleTimeString()}</p>
             </div>
           </div>
 
@@ -61,9 +68,9 @@ export function FirmwareStep({ binary, reading, disabled, espOffset, onEspOffset
               ['Target', targetOf(binary)],
               ['SHA-256', binary.digest.slice(0, 8)],
             ].map(([term, value]) => (
-              <div className="rounded-2xl border border-line bg-sand/40 px-3 py-2.5" key={term}>
-                <dt className="font-mono text-[10px] uppercase tracking-wider text-ink-faint">{term}</dt>
-                <dd className="mt-0.5 truncate font-mono text-sm text-ink" title={term === 'SHA-256' ? binary.digest : undefined}>
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5" key={term}>
+                <dt className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground/60">{term}</dt>
+                <dd className="mt-0.5 truncate font-mono text-sm text-foreground" title={term === 'SHA-256' ? binary.digest : undefined}>
                   {value}
                 </dd>
               </div>
@@ -71,15 +78,15 @@ export function FirmwareStep({ binary, reading, disabled, espOffset, onEspOffset
           </dl>
 
           {binary.format === 'bin' && binary.hint.family !== 'rp' ? (
-            <label className="flex items-center justify-between gap-3 rounded-2xl border border-line px-3 py-2.5">
+            <label className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
               <span>
-                <span className="block font-mono text-[10px] uppercase tracking-wider text-ink-faint">ESP write offset</span>
-                <span className="block text-xs text-ink-muted">Raw .bin only. A Pico always starts at the flash base.</span>
+                <span className="block font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground/60">ESP write offset</span>
+                <span className="block text-xs text-muted-foreground">Raw .bin only. A Pico always starts at the flash base.</span>
               </span>
               <input
-                className="w-28 rounded-lg border border-line bg-card px-2 py-1 text-right font-mono text-sm text-ink focus:border-caramel focus:outline-none disabled:opacity-60"
+                className="w-28 rounded-sm border border-input bg-background px-2 py-1 text-right font-mono text-sm text-foreground focus:bg-muted outline-none disabled:cursor-not-allowed disabled:opacity-50"
                 defaultValue={`0x${espOffset.toString(16).toUpperCase()}`}
-                disabled={disabled}
+                disabled={off}
                 inputMode="text"
                 // Remount per file so the box shows the offset detected for it,
                 // which an uncontrolled input would otherwise keep from the last one.
@@ -96,7 +103,7 @@ export function FirmwareStep({ binary, reading, disabled, espOffset, onEspOffset
           ) : null}
 
           {warning ? (
-            <p className="flex items-start gap-2 rounded-2xl border border-ember/25 bg-ember/10 px-3 py-2.5 text-sm text-ember">
+            <p className="flex items-start gap-2 rounded-md border border-playarka-500/25 bg-playarka-500/10 px-3 py-2.5 text-sm text-playarka-500">
               <AlertIcon className="mt-0.5 shrink-0" />
               {warning}
             </p>
@@ -106,7 +113,7 @@ export function FirmwareStep({ binary, reading, disabled, espOffset, onEspOffset
         <FileDrop
           accept=".bin,.uf2,.elf"
           className="flex-1"
-          disabled={disabled || reading}
+          disabled={off || reading}
           hint="bin · uf2 · elf"
           onFile={onFile}
         />

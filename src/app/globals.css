@@ -1,29 +1,196 @@
 @import "tailwindcss";
 
-@theme {
+/**
+ * streambits theme — a port of the Playarka theme
+ * (playarka/packages/config/tailwind/theme.css).
+ *
+ * Brand: orange #FE4F05 on white (light) / near-black (dark).
+ * No shadows anywhere — borders + bg-card distinction instead.
+ * Geist Sans everywhere, Geist Mono for machine detail and eyebrow labels,
+ * weight 400 across the board; hierarchy comes from size, color and space.
+ *
+ * streambits-only extension: `--success`. Playarka ships primary (orange) and
+ * destructive (red) only; a flash outcome needs a third colour so "flashed"
+ * reads apart from the orange "flashing".
+ */
+
+/* Class-based dark mode (overrides v4 prefers-color-scheme default). The
+   root layout toggles `.dark` on <html> from the system preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Focus: a crisp neutral outline only — never a colored glow/ring or a
+   border-color shift. Apply `focus-visible:focus-outline` on interactive
+   elements. */
+@utility focus-outline {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+
+:root {
+  color-scheme: light;
+
+  /* Border Radius — softer, rounder scale (squircle-ish feel). */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius: var(--radius-md);
+
+  /* Playarka Brand — orange ramp. Base brand at -500 (#FE4F05). */
+  --playarka-50: #fff4ed;
+  --playarka-100: #ffe6d5;
+  --playarka-200: #ffc9a8;
+  --playarka-300: #ffa77b;
+  --playarka-400: #ff7f47;
+  --playarka-500: #fe4f05;
+  --playarka-600: #e54405;
+  --playarka-700: #bc3804;
+  --playarka-800: #962d04;
+  --playarka-900: #6f2103;
+  --playarka-950: #3d1101;
+
+  /* Semantic tokens — Light mode (white + orange) */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+
+  /* Primary — the brand orange itself. Playarka tones this down for its
+     marketing chrome; streambits keeps the vivid one so the few accents pop. */
+  --primary: var(--playarka-500);
+  --primary-foreground: oklch(1 0 0);
+
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(1 0 0);
+
+  --success: oklch(0.55 0.15 150);
+  --success-foreground: oklch(1 0 0);
+
+  --border: oklch(0.92 0 0);
+  --input: oklch(0.92 0 0);
+  --ring: var(--primary);
+
+  /* Easing Functions */
+  --ease-in-cubic: cubic-bezier(0.32, 0, 0.67, 0);
+  --ease-out-cubic: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out-cubic: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Semantic tokens — Dark mode (near-black + orange).
+     Brand orange unchanged — works on both backgrounds. */
+  --background: oklch(0.08 0 0);
+  --foreground: oklch(0.98 0 0);
+
+  --card: oklch(0.12 0 0);
+  --card-foreground: oklch(0.98 0 0);
+
+  --popover: oklch(0.14 0 0);
+  --popover-foreground: oklch(0.98 0 0);
+
+  --primary: var(--playarka-500);
+  --primary-foreground: oklch(1 0 0);
+
+  --muted: oklch(0.16 0 0);
+  --muted-foreground: oklch(0.65 0 0);
+
+  --destructive: oklch(0.65 0.18 25);
+  --destructive-foreground: oklch(1 0 0);
+
+  --success: oklch(0.72 0.16 150);
+  --success-foreground: oklch(0.145 0 0);
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: var(--primary);
+}
+
+@theme inline {
+  /* Typography — Geist Sans + Geist Mono, loaded by next/font in the root layout. */
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
 
-  /* Cream surfaces. */
-  --color-paper: #f4ece1;
-  --color-card: #fcf8f1;
-  --color-sand: #eddfcd;
-  --color-line: #dcc7ae;
+  /* Border Radius (expose to Tailwind) */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
 
-  /* Brown ink scale, espresso to latte. */
-  --color-ink: #2b1d13;
-  --color-cocoa: #4f3527;
-  --color-ink-muted: #7d5f4b;
-  --color-ink-faint: #b1977f;
+  /* Playarka brand ramp — exposed as bg-playarka-500 etc. */
+  --color-playarka-50: var(--playarka-50);
+  --color-playarka-100: var(--playarka-100);
+  --color-playarka-200: var(--playarka-200);
+  --color-playarka-300: var(--playarka-300);
+  --color-playarka-400: var(--playarka-400);
+  --color-playarka-500: var(--playarka-500);
+  --color-playarka-600: var(--playarka-600);
+  --color-playarka-700: var(--playarka-700);
+  --color-playarka-800: var(--playarka-800);
+  --color-playarka-900: var(--playarka-900);
+  --color-playarka-950: var(--playarka-950);
 
-  /* Status accents. */
-  --color-caramel: #b0702f;
-  --color-ember: #c2511f;
-  --color-moss: #4a6b3f;
-  --color-brick: #a83d34;
+  /* Semantic colors */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
-  --shadow-card: 0 1px 0 rgb(43 29 19 / 0.04), 0 18px 44px -28px rgb(43 29 19 / 0.28);
-  --shadow-modal: 0 24px 80px -24px rgb(43 29 19 / 0.45);
+  /* Easing */
+  --ease-in-cubic: var(--ease-in-cubic);
+  --ease-out-cubic: var(--ease-out-cubic);
+  --ease-out-quint: var(--ease-out-quint);
+  --ease-in-out-cubic: var(--ease-in-out-cubic);
+}
+
+/* A soft brand glow behind the shell — a whisper of orange, not a wash. */
+.brand-wash {
+  background-color: var(--background);
+  background-image:
+    radial-gradient(
+      56rem 30rem at 100% -10%,
+      color-mix(in oklab, var(--playarka-500) 9%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      44rem 26rem at -8% 108%,
+      color-mix(in oklab, var(--playarka-500) 5%, transparent),
+      transparent 62%
+    );
+}
+
+.dark .brand-wash {
+  background-image:
+    radial-gradient(
+      56rem 30rem at 100% -10%,
+      color-mix(in oklab, var(--playarka-500) 14%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      44rem 26rem at -8% 108%,
+      color-mix(in oklab, var(--playarka-500) 7%, transparent),
+      transparent 62%
+    );
 }
 
 /* One screen: the shell owns the viewport, only panes scroll. */
@@ -32,19 +199,10 @@ body {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  color-scheme: light;
-}
-
-.paper {
-  background-color: var(--color-paper);
-  background-image:
-    radial-gradient(60rem 30rem at 12% -10%, rgb(255 255 255 / 0.75), transparent 60%),
-    radial-gradient(48rem 28rem at 100% 110%, rgb(176 112 47 / 0.14), transparent 60%),
-    radial-gradient(40rem 24rem at -10% 100%, rgb(79 53 39 / 0.08), transparent 60%);
 }
 
 .pane-scroll {
-  scrollbar-color: var(--color-line) transparent;
+  scrollbar-color: var(--border) transparent;
   scrollbar-width: thin;
 }
 
@@ -54,7 +212,7 @@ body {
 
 .pane-scroll::-webkit-scrollbar-thumb {
   background-clip: content-box;
-  background-color: var(--color-line);
+  background-color: var(--border);
   border: 3px solid transparent;
   border-radius: 999px;
 }
@@ -63,22 +221,22 @@ body {
   background: transparent;
 }
 
+/* Dialog: Playarka's content-in (fade + scale) over a plain black scrim. */
 dialog[open] {
-  animation: modal-in 160ms ease-out;
+  animation: content-in 160ms var(--ease-out-quint) both;
 }
 
 dialog::backdrop {
-  background: rgb(43 29 19 / 0.35);
-  backdrop-filter: blur(4px);
+  background: rgb(0 0 0 / 0.5);
 }
 
-@keyframes modal-in {
+@keyframes content-in {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.98);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;
-    transform: none;
+    transform: scale(1);
   }
 }

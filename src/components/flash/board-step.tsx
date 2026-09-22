@@ -28,7 +28,8 @@ type BoardStepProps = {
   onOpenPicker: () => void
   onRelease: (id: string) => void
   onReboot: (id: string) => void
-  onRecheck: (id: string) => void
+  /** Drops an unplugged row and opens the picker so the operator selects the board afresh. */
+  onReselect: (id: string) => void
 }
 
 export function BoardStep({
@@ -39,7 +40,7 @@ export function BoardStep({
   onOpenPicker,
   onRelease,
   onReboot,
-  onRecheck,
+  onReselect,
 }: BoardStepProps) {
   const online = devices.filter((device) => device.state !== 'offline').length
   const supported = support.serial === true || support.usb === true
@@ -60,7 +61,7 @@ export function BoardStep({
           <Button disabled={!supported || running} icon={<PlugIcon />} onClick={onOpenPicker}>
             Add
             {availableCount > 0 ? (
-              <span className="rounded-full bg-caramel/15 px-1.5 font-mono text-[10px] text-caramel">{availableCount}</span>
+              <span className="rounded-full bg-primary/10 px-1.5 font-mono text-[10px] text-primary">{availableCount}</span>
             ) : null}
           </Button>
         ) : undefined
@@ -71,13 +72,13 @@ export function BoardStep({
       title="Board"
     >
       {unsupported ? (
-        <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-line bg-sand/30">
+        <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border bg-muted/30">
           <EmptyState icon={<PlugIcon className="h-5 w-5" />} title="This browser cannot reach USB boards">
             Open streambits in Chrome or Edge on a desktop computer.
           </EmptyState>
         </div>
       ) : devices.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-line bg-sand/30 py-6">
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-md border border-dashed border-border bg-muted/30 py-6">
           <EmptyState icon={<PlugIcon className="h-5 w-5" />} title="Plug your board into a USB port">
             {availableCount > 0
               ? `${availableCount} board${availableCount > 1 ? 's are' : ' is'} waiting to be connected.`
@@ -94,15 +95,15 @@ export function BoardStep({
             const needsBootsel = device.transport === 'serial' && device.family === 'rp' && device.state !== 'offline'
 
             return (
-              <li className="flex flex-col gap-2.5 rounded-2xl border border-line bg-paper/70 px-4 py-3" key={device.id}>
+              <li className="flex flex-col gap-2.5 rounded-md border border-border bg-background px-4 py-3" key={device.id}>
                 <div className="flex items-center gap-3">
                   <StatusDot pulse={device.state === 'busy'} tone={tone} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-medium text-ink">{device.name}</p>
-                      <span className="truncate font-mono text-[10px] uppercase tracking-wider text-ink-faint">{chipLabel(device)}</span>
+                      <p className="truncate text-sm text-foreground">{device.name}</p>
+                      <span className="truncate font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground/60">{chipLabel(device)}</span>
                     </div>
-                    <p className="truncate font-mono text-[11px] text-ink-muted">{device.detail}</p>
+                    <p className="truncate font-mono text-[11px] text-muted-foreground">{device.detail}</p>
                   </div>
                   <Badge tone={tone}>
                     {label}
@@ -122,23 +123,23 @@ export function BoardStep({
                   <ProgressBar label={`${device.name} progress`} tone="busy" value={device.progress} />
                 ) : null}
                 {device.state === 'offline' ? (
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-sand/50 px-3 py-2">
-                    <p className="text-xs leading-relaxed text-ink-muted">Plug this board back in, then look for it again.</p>
-                    <Button disabled={running} icon={<RefreshIcon />} onClick={() => onRecheck(device.id)}>
-                      Check again
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2">
+                    <p className="text-xs leading-relaxed text-muted-foreground">Unplugged. Plug it back in, then select it again.</p>
+                    <Button disabled={running || !supported} icon={<PlugIcon />} onClick={() => onReselect(device.id)}>
+                      Select board
                     </Button>
                   </div>
                 ) : null}
                 {needsBootsel ? (
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-caramel/25 bg-caramel/10 px-3 py-2">
-                    <p className="text-xs leading-relaxed text-cocoa">This Pico is running firmware. It flashes from BOOTSEL mode.</p>
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-primary/25 bg-primary/10 px-3 py-2">
+                    <p className="text-xs leading-relaxed text-foreground">This Pico is running firmware. It flashes from BOOTSEL mode.</p>
                     <Button disabled={running} icon={<RefreshIcon />} onClick={() => onReboot(device.id)}>
                       Reboot
                     </Button>
                   </div>
                 ) : null}
                 {device.note ? (
-                  <p className={device.state === 'failed' ? 'text-xs text-brick' : 'text-xs text-ink-muted'}>{device.note}</p>
+                  <p className={device.state === 'failed' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>{device.note}</p>
                 ) : null}
               </li>
             )

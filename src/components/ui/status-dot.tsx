@@ -2,11 +2,11 @@ import { cx } from '@/lib/cx'
 import type { Tone } from './badge'
 
 const TONES: Record<Tone, string> = {
-  neutral: 'bg-ink-faint',
-  ready: 'bg-caramel',
-  busy: 'bg-ember',
-  ok: 'bg-moss',
-  error: 'bg-brick',
+  neutral: 'bg-muted-foreground/40',
+  ready: 'bg-foreground',
+  busy: 'bg-playarka-500',
+  ok: 'bg-success',
+  error: 'bg-destructive',
 }
 
 export function StatusDot({ tone = 'neutral', pulse }: { tone?: Tone; pulse?: boolean }) {

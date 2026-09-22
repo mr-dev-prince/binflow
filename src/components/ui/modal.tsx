@@ -29,8 +29,7 @@ export function Modal({ open, onClose, title, description, children, footer, cla
     <dialog
       aria-labelledby="modal-title"
       className={cx(
-        'm-auto w-[calc(100%-2rem)] max-w-md rounded-3xl border border-line bg-card p-0 text-ink shadow-modal',
-        'backdrop:bg-transparent',
+        'm-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-border bg-card p-0 text-card-foreground outline-none',
         className,
       )}
       onClick={(event) => {
@@ -41,10 +40,10 @@ export function Modal({ open, onClose, title, description, children, footer, cla
     >
       <div className="flex flex-col">
         <header className="px-6 pt-6 pb-4">
-          <h2 className="text-lg font-semibold tracking-tight" id="modal-title">
+          <h2 className="text-lg tracking-tight" id="modal-title">
             {title}
           </h2>
-          {description ? <p className="mt-1 text-sm leading-relaxed text-ink-muted">{description}</p> : null}
+          {description ? <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{description}</p> : null}
         </header>
         <div className="px-6">{children}</div>
         {footer ? <footer className="px-6 pt-4 pb-6">{footer}</footer> : <div className="pb-6" />}

@@ -71,23 +71,23 @@ export function FlashStep({
           <ProgressRing label="Overall progress" tone={tone} value={allDone ? 1 : progress}>
             {running ? (
               <>
-                <span className="text-4xl font-semibold tabular-nums tracking-tight text-ink">{formatPercent(progress)}</span>
-                <span className="mt-1 font-mono text-[11px] uppercase tracking-[0.2em] text-ink-muted">
+                <span className="text-4xl tabular-nums tracking-tight text-foreground">{formatPercent(progress)}</span>
+                <span className="mt-1 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
                   {stage ? STAGE_LABELS[stage] : 'Start'}
                 </span>
               </>
             ) : allDone ? (
-              <CheckIcon className="h-12 w-12 text-moss" />
+              <CheckIcon className="h-12 w-12 text-success" />
             ) : failedSome ? (
-              <AlertIcon className="h-12 w-12 text-brick" />
+              <AlertIcon className="h-12 w-12 text-destructive" />
             ) : (
-              <BoltIcon className={cx('h-10 w-10', blocker ? 'text-ink-faint' : 'text-caramel')} />
+              <BoltIcon className={cx('h-10 w-10', blocker ? 'text-primary/40' : 'text-primary')} />
             )}
           </ProgressRing>
 
           <div className="max-w-[30ch] text-center">
-            <p className="text-lg font-semibold tracking-tight text-ink">{headline}</p>
-            <p className="mt-1 text-sm leading-relaxed text-ink-muted">{subline}</p>
+            <p className="text-lg tracking-tight text-foreground">{headline}</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{subline}</p>
           </div>
 
           <ol className="flex flex-wrap justify-center gap-1.5">
@@ -99,11 +99,11 @@ export function FlashStep({
               return (
                 <li
                   className={cx(
-                    'rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
-                    state === 'idle' && 'border-line text-ink-faint',
-                    state === 'todo' && 'border-line text-ink-faint',
-                    state === 'active' && 'border-ember/30 bg-ember/10 text-ember',
-                    state === 'done' && 'border-moss/25 bg-moss/10 text-moss',
+                    'rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.1em] transition-colors',
+                    state === 'idle' && 'border-border text-muted-foreground/60',
+                    state === 'todo' && 'border-border text-muted-foreground/60',
+                    state === 'active' && 'border-playarka-500/30 bg-playarka-500/10 text-playarka-500',
+                    state === 'done' && 'border-success/25 bg-success/10 text-success',
                   )}
                   key={item}
                 >
@@ -127,7 +127,7 @@ export function FlashStep({
             size="lg"
             variant="primary"
           >
-            {completed ? 'Flash again' : 'Flash'}
+            {completed && !blocker ? 'Flash again' : 'Flash'}
           </Button>
         )}
       </div>

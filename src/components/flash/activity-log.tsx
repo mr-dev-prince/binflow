@@ -11,10 +11,10 @@ import type { Device, LogEntry, LogLevel } from '@/lib/types'
 import { SerialMonitor } from './serial-monitor'
 
 const LEVELS: Record<LogLevel, string> = {
-  info: 'text-ink-muted',
-  ok: 'text-moss',
-  warn: 'text-ember',
-  error: 'text-brick',
+  info: 'text-muted-foreground',
+  ok: 'text-success',
+  warn: 'text-playarka-500',
+  error: 'text-destructive',
 }
 
 type Tab = 'activity' | 'serial'
@@ -82,18 +82,19 @@ export function ActivityLog({
 
   const tabClass = (which: Tab) =>
     cx(
-      'flex shrink-0 items-center gap-2 rounded-lg px-2 py-1 text-xs font-medium transition-colors',
-      showing === which ? 'bg-sand text-ink' : 'text-ink-muted hover:text-ink',
+      'flex shrink-0 items-center gap-2 rounded-sm px-2 py-1 text-xs transition-colors',
+      'focus-visible:focus-outline outline-none',
+      showing === which ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
     )
 
   const count = (value: number) => (
-    <span className="rounded-full bg-paper/80 px-1.5 font-mono text-[10px] tabular-nums text-ink-muted">{value}</span>
+    <span className="rounded-full bg-muted px-1.5 font-mono text-[10px] tabular-nums text-muted-foreground">{value}</span>
   )
 
   return (
     <footer
       className={cx(
-        'flex flex-col border-t border-line backdrop-blur',
+        'flex flex-col border-t border-border backdrop-blur',
         // Full screen leaves the page flow rather than fighting the shell for height.
         full ? 'fixed inset-0 z-30 bg-card' : 'shrink-0 bg-card/80',
       )}
@@ -112,15 +113,15 @@ export function ActivityLog({
         </button>
 
         {!open && tab === 'activity' && latest ? (
-          <p className="min-w-0 flex-1 truncate font-mono text-xs text-ink-muted">
-            <span className="text-ink-faint">{formatClock(latest.at)}</span>
-            <span className="mx-2 text-ink-faint">·</span>
+          <p className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+            <span className="text-muted-foreground/60">{formatClock(latest.at)}</span>
+            <span className="mx-2 text-muted-foreground/60">·</span>
             <span className={LEVELS[latest.level]}>{latest.message}</span>
           </p>
         ) : !open && tab === 'serial' && lastLine ? (
-          <p className="min-w-0 flex-1 truncate font-mono text-xs text-cocoa">
-            <span className="text-ink-faint">{formatClock(lastLine.at)}</span>
-            <span className="mx-2 text-ink-faint">·</span>
+          <p className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+            <span className="text-muted-foreground/60">{formatClock(lastLine.at)}</span>
+            <span className="mx-2 text-muted-foreground/60">·</span>
             {lastLine.text}
           </p>
         ) : (
@@ -153,18 +154,18 @@ export function ActivityLog({
       {showing === 'activity' ? (
         <div
           className={cx(
-            'pane-scroll overflow-y-auto border-t border-line px-5 py-2 font-mono text-xs leading-6 lg:px-6',
+            'pane-scroll overflow-y-auto border-t border-border px-5 py-2 font-mono text-xs leading-6 lg:px-6',
             full ? 'min-h-0 flex-1' : 'h-44',
           )}
           ref={listRef}
         >
           {entries.length === 0 ? (
-            <p className="text-ink-faint">Nothing yet.</p>
+            <p className="text-muted-foreground/60">Nothing yet.</p>
           ) : (
             entries.map((entry) => (
               <p className="flex gap-3 whitespace-nowrap" key={entry.id}>
-                <span className="text-ink-faint">{formatClock(entry.at)}</span>
-                <span className="w-20 shrink-0 truncate text-ink-muted">{entry.scope}</span>
+                <span className="text-muted-foreground/60">{formatClock(entry.at)}</span>
+                <span className="w-20 shrink-0 truncate text-muted-foreground">{entry.scope}</span>
                 <span className={cx('truncate', LEVELS[entry.level])}>{entry.message}</span>
               </p>
             ))
