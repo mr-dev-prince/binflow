@@ -135,7 +135,9 @@ export function SerialMonitor({ snapshot, boards, running, full, onSelect, onSta
                 'flex gap-3 px-5 lg:px-6',
                 // Striped by the line's own id, not its index: the pattern would
                 // flip on every render once the buffer starts dropping lines.
-                line.id % 2 === 0 ? 'bg-muted/70' : undefined,
+                // A wash of brand orange rather than `muted`, which sits a hair
+                // off the card in dark mode and left the lines running together.
+                line.id % 2 === 0 ? 'bg-playarka-500/10' : undefined,
               )}
               key={line.id}
             >

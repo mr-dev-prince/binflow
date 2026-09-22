@@ -14,8 +14,9 @@
  * reads apart from the orange "flashing".
  */
 
-/* Class-based dark mode (overrides v4 prefers-color-scheme default). The
-   root layout toggles `.dark` on <html> from the system preference. */
+/* Class-based dark mode (overrides v4 prefers-color-scheme default). `.dark`
+   goes on <html> from the system preference or the header toggle, see
+   src/lib/theme.ts. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Focus: a crisp neutral outline only — never a colored glow/ring or a

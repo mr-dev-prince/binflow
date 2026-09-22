@@ -2,6 +2,7 @@ import { TONE_CLASSES } from '@/components/ui/badge'
 import { cx } from '@/lib/cx'
 import { Logo } from '@/components/ui/logo'
 import { StatusDot } from '@/components/ui/status-dot'
+import { ThemeToggle } from '@/components/ui/theme-toggle'
 import type { Support } from '@/lib/use-flasher'
 
 export function AppHeader({ support }: { support: Support }) {
@@ -34,9 +35,12 @@ export function AppHeader({ support }: { support: Support }) {
           </p>
         </div>
       </div>
-      <div className={cx('flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs', TONE_CLASSES[tone])}>
-        <StatusDot tone={tone} />
-        {label}
+      <div className="flex items-center gap-3">
+        <div className={cx('flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs', TONE_CLASSES[tone])}>
+          <StatusDot tone={tone} />
+          {label}
+        </div>
+        <ThemeToggle />
       </div>
     </header>
   )
