@@ -77,11 +77,27 @@ export function uf2Families(blocks: Uf2Block[]) {
   return [...new Set(blocks.map((block) => block.familyId).filter((id): id is number => id !== null))]
 }
 
+/** Family id for blocks that carry an absolute address rather than a chip-specific image. */
+export const UF2_FAMILY_ABSOLUTE = 0xe48bff57
+
+/**
+ * picotool ends every RP2350 UF2 with an ABSOLUTE block at the top of the
+ * 16 MB XIP window, its workaround for erratum RP2350-E10. The block only
+ * steers the bootrom's drag-and-drop download and holds no program bytes.
+ * Written over PICOBOOT it would cost a sector erase, and on a board with less
+ * than 16 MB of flash the address wraps around onto real data.
+ */
+export const E10_MARKER_ADDRESS = 0x10ffff00
+
+export function isE10Marker(block: Uf2Block) {
+  return block.familyId === UF2_FAMILY_ABSOLUTE && block.targetAddr === E10_MARKER_ADDRESS
+}
+
 /** Flash-bound payloads joined into contiguous runs. */
 export function uf2Segments(blocks: Uf2Block[]): Segment[] {
   return mergeSegments(
     blocks
-      .filter((block) => !(block.flags & FLAG_NOT_MAIN_FLASH))
+      .filter((block) => !(block.flags & FLAG_NOT_MAIN_FLASH) && !isE10Marker(block))
       .map((block) => ({ address: block.targetAddr, data: block.data })),
   )
 }

@@ -6,7 +6,7 @@ import { ESP_APP_OFFSET, ESP_FLASH_BASE, isFullFlashImage } from './image/esp-im
 import { monitor } from './monitor'
 import { describePort, familyOfPort, grantedPorts, isPortPresent, isSerialSupported, rebootToBootsel, requestPort } from './serial'
 import type { Binary, Device, Family, FlashStage, LogEntry, LogLevel } from './types'
-import { describeUsb, grantedBootsel, isSameUsb, isUsbSupported, requestBootsel } from './usb'
+import { describeUsb, grantedBootsel, isBootselDevice, isSameUsb, isUsbSupported, requestBootsel } from './usb'
 
 const LOG_LIMIT = 400
 
@@ -48,7 +48,12 @@ type Known = {
   device: Device
   place: 'available' | 'connected'
   offline: boolean
+  /** Why the board is about to drop off the bus, so its disappearance is reported as expected rather than as an unplug. */
+  leaving?: { note: string; until: number }
 }
+
+/** How long a reboot or reset may take to show up as a disconnect. */
+const LEAVING_MS = 5000
 
 let logId = 0
 
@@ -140,6 +145,8 @@ export function useFlasher() {
   const knownRef = useRef(new Map<string, Known>())
   const counterRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
+  /** Board the monitor lost to a reboot, a flash or a replug, to be read again the moment it is back. */
+  const resumeRef = useRef<string | null>(null)
 
   const log = useCallback(
     (level: LogLevel, scope: string, message: string) =>
@@ -155,21 +162,73 @@ export function useFlasher() {
     return null
   }
 
+  /**
+   * A serial port carries no serial number, so a board that resets or is
+   * replugged comes back as a new SerialPort object that lookup() has never
+   * seen. When exactly one connected board with the same vendor and product
+   * ids is offline, this is that board.
+   */
+  const adoptReturning = (target: Target): Known | null => {
+    if (target.kind !== 'serial') return null
+
+    const { usbVendorId, usbProductId } = target.port.getInfo()
+    if (usbVendorId === undefined) return null
+
+    const candidates = [...knownRef.current.values()].filter((known) => {
+      if (known.place !== 'connected' || !known.offline || known.target.kind !== 'serial') return false
+
+      const info = known.target.port.getInfo()
+      return info.usbVendorId === usbVendorId && info.usbProductId === usbProductId
+    })
+
+    return candidates.length === 1 ? candidates[0] : null
+  }
+
+  /**
+   * Puts the monitor back on a board it lost, in time for the boot log that
+   * firmware prints a second or two after coming up. Native USB chips drop off
+   * the bus on every reset, so this is how a Pico or an ESP32-S3 keeps a
+   * monitor across a flash.
+   */
+  const resumeMonitor = useCallback(async (known: Known) => {
+    if (resumeRef.current !== known.device.id) return
+    resumeRef.current = null
+
+    const { id, name } = known.device
+
+    // The port can trail its connect event by a moment.
+    for (let attempt = 0; ; attempt += 1) {
+      if (known.target.kind !== 'serial') return
+
+      try {
+        await monitor.attach(id, known.target.port)
+        log('ok', name, `Serial monitor back on at ${monitor.getSnapshot().baud} baud`)
+        return
+      } catch (error) {
+        if (attempt >= 2) {
+          log('warn', name, `Serial monitor did not reopen: ${(error as Error).message}`)
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300))
+      }
+    }
+  }, [log])
+
   /** Registers something the browser told us about. New arrivals wait in the available list. */
   const discover = useCallback(
     (target: Target): Known => {
-      const existing = lookup(target)
+      const existing = lookup(target) ?? adoptReturning(target)
 
       if (existing) {
-        // A replug hands us a new port or device object; the old one is dead. Only
-        // a USB device carries a serial number, so a serial board that comes back
-        // is usually a stranger to lookup() and lands in the available list.
+        // A replug hands us a new port or device object; the old one is dead.
         existing.target = target
 
         if (existing.place === 'connected' && existing.offline) {
           existing.offline = false
+          existing.leaving = undefined
           dispatch({ type: 'devices/patch', id: existing.device.id, patch: { state: 'ready', progress: null, note: undefined } })
           log('ok', existing.device.name, 'Plugged back in')
+          void resumeMonitor(existing)
         }
 
         return existing
@@ -200,7 +259,7 @@ export function useFlasher() {
 
       return known
     },
-    [log],
+    [log, resumeMonitor],
   )
 
   /** Moves a board from the available list into the connected list. */
@@ -254,6 +313,7 @@ export function useFlasher() {
     const known = knownRef.current.get(id)
     if (!known || known.place !== 'connected') return
 
+    if (resumeRef.current === id) resumeRef.current = null
     void monitor.detachDevice(id)
     dispatch({ type: 'devices/remove', id })
 
@@ -269,6 +329,7 @@ export function useFlasher() {
   /** Revokes the browser permission so the device stops appearing. */
   const forgetBoard = useCallback(async (id: string) => {
     const known = knownRef.current.get(id)
+    if (resumeRef.current === id) resumeRef.current = null
     await monitor.detachDevice(id)
     knownRef.current.delete(id)
     dispatch({ type: 'available/remove', id })
@@ -289,8 +350,12 @@ export function useFlasher() {
       if (!known || known.target.kind !== 'serial') return
 
       try {
+        const watching = monitor.watching === id
         await monitor.detachDevice(id)
+        known.leaving = { note: 'Rebooting into BOOTSEL', until: Date.now() + LEAVING_MS }
         await rebootToBootsel(known.target.port)
+        // Once flashed, the board comes back on a fresh port; the monitor goes with it.
+        if (watching) resumeRef.current = id
         dispatch({ type: 'devices/patch', id, patch: { note: 'Rebooting into BOOTSEL. Add it as a USB device when it reappears' } })
         log('info', known.device.name, 'Sent the 1200 baud reboot. Add the BOOTSEL device from Connect a board')
       } catch (error) {
@@ -305,6 +370,9 @@ export function useFlasher() {
     async (id: string) => {
       const known = knownRef.current.get(id)
       if (!known) return
+
+      // The operator chose a board; whatever the monitor was waiting on is moot.
+      resumeRef.current = null
 
       if (known.target.kind !== 'serial') {
         log('warn', known.device.name, 'A board in BOOTSEL mode has no serial console')
@@ -323,6 +391,7 @@ export function useFlasher() {
 
   const stopMonitor = useCallback(async () => {
     const id = monitor.watching
+    resumeRef.current = null
     await monitor.detach()
     if (id) log('info', knownRef.current.get(id)?.device.name ?? 'board', 'Serial monitor closed')
   }, [log])
@@ -335,7 +404,14 @@ export function useFlasher() {
 
   const clearMonitor = useCallback(() => monitor.clear(), [])
 
-  const resetMonitored = useCallback(() => monitor.reset(), [])
+  const resetMonitored = useCallback(async () => {
+    const known = monitor.watching ? knownRef.current.get(monitor.watching) : undefined
+    await monitor.reset()
+
+    // Native USB firmware on a Pico has no reset line to pulse. The toggle only
+    // drops DTR for a moment, so say why nothing rebooted.
+    if (known?.device.family === 'rp') monitor.note('a Pico running firmware ignores the reset line. Replug it to catch its boot log')
+  }, [])
 
   useEffect(() => {
     const hasSerial = isSerialSupported()
@@ -368,7 +444,11 @@ export function useFlasher() {
       grantedBootsel().then((devices) => devices.forEach((device) => discover({ kind: 'usb', device })))
 
       const onConnect = (event: USBConnectionEvent) => {
-        if (event.device.vendorId === 0x2e8a) discover({ kind: 'usb', device: event.device })
+        // A Pico keeps its serial number when it reboots from firmware into the
+        // bootrom, so a permission granted to the running board covers the
+        // bootloader too and it lands in the available list on its own. The
+        // interface check keeps the running board itself out of the USB list.
+        if (isBootselDevice(event.device)) discover({ kind: 'usb', device: event.device })
       }
       const onDisconnect = (event: USBConnectionEvent) => vanish({ kind: 'usb', device: event.device })
 
@@ -385,10 +465,22 @@ export function useFlasher() {
       if (!known) return
 
       if (known.place === 'connected') {
+        const { id, name } = known.device
+
+        // The monitor may still be reading, or may already have seen the port go.
+        // Either way it belongs on this board when the board returns.
+        if (monitor.watching === id || (monitor.lostPort && monitor.getSnapshot().deviceId === id)) resumeRef.current = id
+
         known.offline = true
-        void monitor.detachDevice(known.device.id)
-        dispatch({ type: 'devices/patch', id: known.device.id, patch: { state: 'offline', progress: null, note: undefined } })
-        log('warn', known.device.name, 'Unplugged. Plug it back in, then select it again')
+        void monitor.detachDevice(id)
+        dispatch({ type: 'devices/patch', id, patch: { state: 'offline', progress: null, note: undefined } })
+
+        if (known.leaving && Date.now() < known.leaving.until) {
+          log('info', name, known.leaving.note)
+        } else {
+          log('warn', name, 'Unplugged. Plug it back in, then select it again')
+        }
+        known.leaving = undefined
       } else {
         knownRef.current.delete(known.device.id)
         dispatch({ type: 'available/remove', id: known.device.id })
@@ -477,6 +569,8 @@ export function useFlasher() {
         )
 
         known.device = { ...known.device, chip: result.chip }
+        // A native USB chip drops off the bus as it resets into the new firmware.
+        known.leaving = { note: 'Reset into its firmware', until: Date.now() + LEAVING_MS }
         dispatch({ type: 'devices/patch', id: target.id, patch: { state: 'flashed', progress: 1, chip: result.chip } })
         dispatch({ type: 'run/finished' })
         log('ok', target.name, 'Done')
@@ -508,12 +602,18 @@ export function useFlasher() {
 
     const known = watched ? knownRef.current.get(watched) : undefined
 
-    if (watched && known?.target.kind === 'serial' && !known.offline) {
-      // The board has just been reset, so let the port settle before reopening.
-      await new Promise((resolve) => setTimeout(resolve, 300))
-      await monitor
-        .attach(watched, known.target.port)
-        .catch((error: Error) => log('warn', known.device.name, `Serial monitor did not reopen: ${error.message}`))
+    if (watched && known?.target.kind === 'serial') {
+      if (known.offline) {
+        // A native USB chip drops off the bus when it resets. The monitor goes
+        // back on when the port returns, in time for the boot log.
+        resumeRef.current = watched
+      } else {
+        // The board has just been reset, so let the port settle before reopening.
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        await monitor
+          .attach(watched, known.target.port)
+          .catch((error: Error) => log('warn', known.device.name, `Serial monitor did not reopen: ${error.message}`))
+      }
     }
   }, [log, state])
 

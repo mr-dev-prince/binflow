@@ -7,7 +7,7 @@
 
 import { ELF_MACHINE, loadableSegments, parseElf } from '../image/elf'
 import { hex, mergeSegments, totalBytes, type Segment } from '../image/segments'
-import { UF2_FAMILIES, parseUf2, uf2Families, uf2Segments } from '../image/uf2'
+import { UF2_FAMILIES, isE10Marker, parseUf2, uf2Families, uf2Segments } from '../image/uf2'
 import type { Binary } from '../types'
 import { FlashAborted, throwIfAborted, type Driver, type FlashHandlers } from './types'
 
@@ -105,7 +105,38 @@ export function planFlash(segments: Segment[]): FlashRun[] {
   return runs
 }
 
-class Picoboot {
+export type PicobootInterface = { interfaceNumber: number; epIn: number; epOut: number }
+
+/**
+ * Finds the bootrom's PICOBOOT interface from the descriptors alone, so it
+ * works before the device is opened: vendor class, subclass 0, protocol 0, one
+ * bulk endpoint each way. Vendor and product ids cannot do this job. Firmware
+ * built with the Pico SDK carries a vendor-class "reset" interface too, with
+ * protocol 1 and no endpoints, and Arduino-Pico firmware on a Pico 2 reuses
+ * the RP2350 BOOTSEL product id outright while exposing only CDC serial.
+ */
+export function findPicobootInterface(device: USBDevice): PicobootInterface | null {
+  const configurations = device.configuration ? [device.configuration] : device.configurations
+
+  for (const configuration of configurations) {
+    for (const iface of configuration.interfaces) {
+      for (const alternate of iface.alternates) {
+        if (alternate.interfaceClass !== 0xff || alternate.interfaceSubclass !== 0 || alternate.interfaceProtocol !== 0) continue
+
+        const bulkIn = alternate.endpoints.find((ep) => ep.direction === 'in' && ep.type === 'bulk')
+        const bulkOut = alternate.endpoints.find((ep) => ep.direction === 'out' && ep.type === 'bulk')
+        if (bulkIn && bulkOut) {
+          return { interfaceNumber: iface.interfaceNumber, epIn: bulkIn.endpointNumber, epOut: bulkOut.endpointNumber }
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+/** One PICOBOOT session. Exported so the protocol can be driven outside the flash flow, e.g. from a hardware harness. */
+export class Picoboot {
   private token = 1
   private interfaceNumber = 0
   private epIn = 0
@@ -121,28 +152,21 @@ class Picoboot {
     await this.device.open()
     if (!this.device.configuration) await this.device.selectConfiguration(1)
 
-    const iface = this.device.configuration?.interfaces.find((candidate) =>
-      candidate.alternates.some((alternate) => alternate.interfaceClass === 0xff),
-    )
-    if (!iface) throw new Error('No PICOBOOT interface on this device')
-
-    const alternate = iface.alternates.find((candidate) => candidate.interfaceClass === 0xff)!
-    const bulkIn = alternate.endpoints.find((ep) => ep.direction === 'in' && ep.type === 'bulk')
-    const bulkOut = alternate.endpoints.find((ep) => ep.direction === 'out' && ep.type === 'bulk')
-    if (!bulkIn || !bulkOut) throw new Error('PICOBOOT interface is missing its bulk endpoints')
+    const iface = findPicobootInterface(this.device)
+    if (!iface) {
+      throw new Error(`This ${this.chip} is running firmware, not the bootloader. Reboot it into BOOTSEL, then add it again`)
+    }
 
     this.interfaceNumber = iface.interfaceNumber
-    this.epIn = bulkIn.endpointNumber
-    this.epOut = bulkOut.endpointNumber
+    this.epIn = iface.epIn
+    this.epOut = iface.epOut
 
     await this.device.claimInterface(this.interfaceNumber)
-    await this.device.controlTransferOut({
-      requestType: 'vendor',
-      recipient: 'interface',
-      request: IF_RESET,
-      value: 0,
-      index: this.interfaceNumber,
-    })
+    // The empty payload is explicit because not every WebUSB implementation treats it as optional.
+    await this.device.controlTransferOut(
+      { requestType: 'vendor', recipient: 'interface', request: IF_RESET, value: 0, index: this.interfaceNumber },
+      new Uint8Array(0),
+    )
   }
 
   async close() {
@@ -267,7 +291,12 @@ function prepare(binary: Binary, chip: string, log: FlashHandlers['onLog']): Seg
         .filter((family) => family !== undefined)
 
       if (known.length > 0 && !known.some((family) => family.chip === chip)) {
-        throw new Error(`This UF2 is built for ${known.map((f) => f.chip).join(', ')}, not ${chip}`)
+        const chips = [...new Set(known.map((family) => family.chip))]
+        throw new Error(`This UF2 is built for ${chips.join(', ')}, not ${chip}`)
+      }
+
+      if (blocks.some(isE10Marker)) {
+        log('info', 'Skipping the RP2350-E10 marker block at 0x10FFFF00. It only steers drag-and-drop downloads')
       }
 
       segments = uf2Segments(blocks)

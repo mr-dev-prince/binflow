@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { isUf2, parseUf2, uf2Families, uf2Segments } from './uf2'
+import { E10_MARKER_ADDRESS, UF2_FAMILY_ABSOLUTE, isE10Marker, isUf2, parseUf2, uf2Families, uf2Segments } from './uf2'
 
 const RP2040 = 0xe48bff56
+const RP2350 = 0xe48bff59
 
 function block(targetAddr: number, data: Uint8Array, blockNo: number, numBlocks: number, family = RP2040, flags = 0x2000) {
   const out = new Uint8Array(512)
@@ -65,6 +66,24 @@ describe('uf2', () => {
   test('skips blocks flagged as not main flash', () => {
     const withExtra = concat([block(0x10000000, a, 0, 2), block(0x20000000, c, 1, 2, RP2040, 0x2001)])
     expect(uf2Segments(parseUf2(withExtra))).toHaveLength(1)
+  })
+
+  test('drops the RP2350-E10 marker block picotool appends', () => {
+    const marker = block(E10_MARKER_ADDRESS, new Uint8Array(256).fill(0xef), 1, 2, UF2_FAMILY_ABSOLUTE)
+    const blocks = parseUf2(concat([block(0x10000000, a, 0, 2, RP2350), marker]))
+
+    expect(blocks.map(isE10Marker)).toEqual([false, true])
+    expect(uf2Families(blocks)).toEqual([RP2350, UF2_FAMILY_ABSOLUTE])
+
+    const segments = uf2Segments(blocks)
+    expect(segments).toHaveLength(1)
+    expect(segments[0].address).toBe(0x10000000)
+  })
+
+  test('keeps absolute blocks that are not the marker', () => {
+    const blocks = parseUf2(concat([block(0x10000000, a, 0, 2, RP2350), block(0x10100000, c, 1, 2, UF2_FAMILY_ABSOLUTE)]))
+
+    expect(uf2Segments(blocks)).toHaveLength(2)
   })
 
   test('rejects a corrupt block', () => {

@@ -1,18 +1,22 @@
 /** WebUSB access to Raspberry Pi boards sitting in BOOTSEL mode. */
 
-import { RP_BOOTSEL_PRODUCTS, RP_VENDOR } from './drivers/picoboot'
+import { RP_BOOTSEL_PRODUCTS, RP_VENDOR, findPicobootInterface } from './drivers/picoboot'
 
-const FILTERS: USBDeviceFilter[] = Object.keys(RP_BOOTSEL_PRODUCTS).map((productId) => ({
-  vendorId: RP_VENDOR,
-  productId: Number(productId),
-}))
+/**
+ * The picker matches class filters against every interface, not just the
+ * device, so this admits a bootrom and nothing else on a Raspberry Pi id. A
+ * Pico 2 running Arduino-Pico firmware shares the RP2350 BOOTSEL product id
+ * but has only CDC interfaces, and used to show up here as a bootloader.
+ */
+const FILTERS: USBDeviceFilter[] = [{ vendorId: RP_VENDOR, classCode: 0xff, subclassCode: 0, protocolCode: 0 }]
 
 export function isUsbSupported() {
   return typeof navigator !== 'undefined' && 'usb' in navigator
 }
 
+/** True only for a board sitting in the bootrom, judged by its interfaces rather than its product id. */
 export function isBootselDevice(device: USBDevice) {
-  return device.vendorId === RP_VENDOR && device.productId in RP_BOOTSEL_PRODUCTS
+  return device.vendorId === RP_VENDOR && findPicobootInterface(device) !== null
 }
 
 export function describeUsb(device: USBDevice) {

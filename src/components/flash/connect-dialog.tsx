@@ -55,7 +55,7 @@ export function ConnectDialog({
               size="md"
               variant="primary"
             >
-              {picking === 'serial' ? 'Waiting…' : 'ESP32 over serial'}
+              {picking === 'serial' ? 'Waiting…' : 'Serial port'}
             </Button>
             <Button
               className="w-full"
@@ -69,7 +69,8 @@ export function ConnectDialog({
             </Button>
           </div>
           <p className="text-center text-xs leading-relaxed text-muted-foreground/60">
-            ESP boards show up as serial ports. A Pico must be in BOOTSEL mode: hold the button while plugging it in.
+            ESP boards, and a Pico that is running firmware, show up as serial ports. A Pico flashes from BOOTSEL: connect it
+            over serial and press Reboot, or hold the button while plugging it in.
           </p>
         </div>
       }

@@ -79,6 +79,26 @@ export class SerialMonitor {
   private flushTimer: ReturnType<typeof setTimeout> | null = null
   private idleTimer: ReturnType<typeof setTimeout> | null = null
 
+  /** Pending release of a predecessor's port; attach() waits for it. */
+  private handoff: Promise<void> | null = null
+  /** The port vanished under the reader, as opposed to being closed on purpose. */
+  private lost = false
+
+  /**
+   * A predecessor is the instance a hot reload is replacing. It still owns an
+   * open port and the lock on its reader, so nothing here could open that port
+   * again until it lets go. Its selection carries over; its lines do not.
+   */
+  constructor(predecessor?: SerialMonitor) {
+    if (!predecessor) return
+
+    const { deviceId, baud } = predecessor.getSnapshot()
+    this.deviceId = deviceId
+    this.baud = baud
+    this.snapshot = { ...EMPTY, deviceId, baud }
+    this.handoff = predecessor.detach().catch(() => undefined)
+  }
+
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -93,9 +113,16 @@ export class SerialMonitor {
     return this.port ? this.deviceId : null
   }
 
+  /** True when the last port went away mid-read, so the selected board is one to pick up again. */
+  get lostPort() {
+    return this.lost
+  }
+
   async attach(deviceId: string, port: SerialPort, baud = this.baud) {
+    await this.handoff
     await this.detach()
 
+    this.lost = false
     this.deviceId = deviceId
     this.baud = baud
     this.status = 'opening'
@@ -103,7 +130,7 @@ export class SerialMonitor {
     this.publish()
 
     try {
-      await port.open({ baudRate: baud, bufferSize: 8 * 1024 })
+      await this.openPort(port, baud)
     } catch (error) {
       this.status = 'off'
       this.error = (error as Error).message
@@ -111,14 +138,38 @@ export class SerialMonitor {
       throw error
     }
 
-    // DTR and RTS reach IO0 and EN through the auto-reset circuit on most ESP
-    // boards. Left asserted they hold the chip in reset or in the bootloader.
-    await port.setSignals({ dataTerminalReady: false, requestToSend: false }).catch(() => undefined)
+    // Native USB firmware, Pico SDK and Arduino-Pico included, only transmits
+    // while DTR says a terminal is listening. RTS goes up with it: on the ESP
+    // auto-reset circuit both lines asserted is a normal run state, and only a
+    // mixed pair holds EN low or pulls IO0 down.
+    await port.setSignals({ dataTerminalReady: true, requestToSend: true }).catch(() => undefined)
 
     this.port = port
     this.status = 'on'
     this.publish()
     this.pump = this.read(port)
+  }
+
+  /**
+   * Opens the port. One this page already holds open, because whatever opened
+   * it has been replaced or forgot to close it, is closed and opened again so
+   * the baud rate applies. When its streams are locked a reader is still
+   * running somewhere, and only a page reload can free it.
+   */
+  private async openPort(port: SerialPort, baud: number) {
+    const options: SerialOptions = { baudRate: baud, bufferSize: 8 * 1024 }
+
+    try {
+      await port.open(options)
+    } catch (error) {
+      if ((error as DOMException).name !== 'InvalidStateError') throw error
+      if (port.readable?.locked || port.writable?.locked) {
+        throw new Error('The port is already open elsewhere on this page. Reload the page to release it')
+      }
+
+      await port.close()
+      await port.open(options)
+    }
   }
 
   async detach() {
@@ -225,6 +276,7 @@ export class SerialMonitor {
     // port.readable goes null when the board is pulled out mid-read.
     if (this.port === port) {
       this.port = null
+      this.lost = true
       this.status = 'off'
       this.error = 'The board went away'
       this.note('disconnected')
@@ -310,5 +362,11 @@ export class SerialMonitor {
   }
 }
 
-/** One page, one open port: the monitor is shared rather than per component. */
-export const monitor = new SerialMonitor()
+/**
+ * One page, one open port: the monitor is shared rather than per component.
+ * In development a hot reload evaluates this module again while the previous
+ * instance still owns the port, so it is handed over rather than orphaned.
+ */
+const shared = globalThis as { __streambitsMonitor?: SerialMonitor }
+export const monitor = new SerialMonitor(shared.__streambitsMonitor)
+shared.__streambitsMonitor = monitor

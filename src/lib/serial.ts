@@ -69,14 +69,16 @@ export function isPortPresent(port: SerialPort) {
 
 /**
  * Pulses the reset line of an open port so the board reboots and prints its
- * boot log again. RTS drives EN on the usual ESP auto-reset circuit; DTR stays
- * clear so the chip starts the app rather than the bootloader. Boards wired
- * without that circuit, native USB included, simply ignore it.
+ * boot log again. On the usual ESP auto-reset circuit RTS asserted with DTR
+ * clear drives EN low; raising both together releases it with IO0 high, so
+ * the chip starts the app rather than the bootloader. DTR ends up asserted,
+ * which native USB firmware needs before it will transmit at all. Boards wired
+ * without the circuit see only a blip on DTR and carry on.
  */
 export async function pulseReset(port: SerialPort) {
   await port.setSignals({ dataTerminalReady: false, requestToSend: true })
   await new Promise((resolve) => setTimeout(resolve, 100))
-  await port.setSignals({ requestToSend: false })
+  await port.setSignals({ dataTerminalReady: true, requestToSend: true })
 }
 
 /**

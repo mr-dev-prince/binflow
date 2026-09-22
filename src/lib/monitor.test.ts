@@ -1,41 +1,82 @@
 import { describe, expect, test } from 'bun:test'
 import { SerialMonitor } from './monitor'
 
-/** A port that hands the monitor whatever the test pushes into it. */
+/**
+ * A port that hands the monitor whatever the test pushes into it, with the
+ * state rules Chromium enforces: a second open() is an InvalidStateError and a
+ * port whose stream is locked cannot be closed.
+ */
 function fakePort() {
-  let push!: (text: string) => void
-  let finish!: () => void
+  let controller!: ReadableStreamDefaultController<Uint8Array>
+  let readable: ReadableStream<Uint8Array> | null = null
+  const signals: SerialOutputSignals[] = []
 
-  const readable = new ReadableStream<Uint8Array>({
-    start(controller) {
-      push = (text) => controller.enqueue(new TextEncoder().encode(text))
-      finish = () => controller.close()
-    },
-  })
+  const open = () => {
+    readable = new ReadableStream<Uint8Array>({
+      start(next) {
+        controller = next
+      },
+    })
+  }
 
   const port = {
-    readable,
-    open: async () => undefined,
-    close: async () => undefined,
-    setSignals: async () => undefined,
+    get readable() {
+      return readable
+    },
+    open: async () => {
+      if (readable) throw Object.assign(new Error('The port is already open.'), { name: 'InvalidStateError' })
+      open()
+    },
+    close: async () => {
+      if (readable?.locked) throw new TypeError('Cannot cancel a locked stream')
+      readable = null
+    },
+    setSignals: async (next: SerialOutputSignals) => {
+      signals.push(next)
+    },
     getInfo: () => ({}),
   }
 
-  return { port: port as unknown as SerialPort, push, finish }
+  return {
+    port: port as unknown as SerialPort,
+    push: (text: string) => controller.enqueue(new TextEncoder().encode(text)),
+    finish: () => controller.close(),
+    signals,
+    /** Pretend code that has since been replaced opened the port and never closed it. */
+    leaveOpen: open,
+    isOpen: () => readable !== null,
+  }
 }
 
 /** Snapshots are published on a timer, so give the store a moment to catch up. */
 const settle = (ms = 140) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function watch() {
-  const { port, push, finish } = fakePort()
+  const { port, push, finish, signals } = fakePort()
   const monitor = new SerialMonitor()
   await monitor.attach('board-1', port)
 
-  return { monitor, push, finish, lines: () => monitor.getSnapshot().lines.map((line) => line.text) }
+  return { monitor, push, finish, signals, lines: () => monitor.getSnapshot().lines.map((line) => line.text) }
 }
 
 describe('serial monitor', () => {
+  test('asserts DTR and RTS on attach and again after a reset pulse', async () => {
+    // Native USB firmware such as Arduino-Pico drops every byte while DTR is clear.
+    const { monitor, signals, lines } = await watch()
+
+    expect(signals).toEqual([{ dataTerminalReady: true, requestToSend: true }])
+
+    await monitor.reset()
+    await settle()
+
+    expect(signals.slice(1)).toEqual([
+      { dataTerminalReady: false, requestToSend: true },
+      { dataTerminalReady: true, requestToSend: true },
+    ])
+    expect(lines()).toEqual(['— reset —'])
+    await monitor.detach()
+  })
+
   test('joins lines that arrive in pieces', async () => {
     const { monitor, push, lines } = await watch()
 
@@ -111,6 +152,55 @@ describe('serial monitor', () => {
     expect(() => push('after detach\n')).toThrow()
   })
 
+  test('closes and reopens a port this page left open', async () => {
+    const { port, leaveOpen, isOpen, push } = fakePort()
+    leaveOpen()
+
+    const monitor = new SerialMonitor()
+    await monitor.attach('board-1', port, 9600)
+    expect(monitor.getSnapshot().status).toBe('on')
+
+    push('alive\n')
+    await settle()
+    expect(monitor.getSnapshot().lines.map((line) => line.text)).toEqual(['alive'])
+
+    await monitor.detach()
+    expect(isOpen()).toBe(false)
+  })
+
+  test('explains a port whose reader belongs to someone else', async () => {
+    const { port, leaveOpen } = fakePort()
+    leaveOpen()
+    const stranger = port.readable!.getReader()
+
+    const monitor = new SerialMonitor()
+    await expect(monitor.attach('board-1', port)).rejects.toThrow('Reload the page')
+    expect(monitor.getSnapshot().status).toBe('off')
+    expect(monitor.getSnapshot().error).toContain('already open elsewhere')
+
+    stranger.releaseLock()
+  })
+
+  test('takes over from the instance a hot reload replaced', async () => {
+    const { port, push, isOpen } = fakePort()
+    const before = new SerialMonitor()
+    await before.attach('board-1', port, 9600)
+
+    const after = new SerialMonitor(before)
+    expect(after.getSnapshot()).toMatchObject({ deviceId: 'board-1', baud: 9600, status: 'off' })
+
+    await after.attach('board-1', port)
+    expect(before.watching).toBeNull()
+    expect(after.watching).toBe('board-1')
+    expect(isOpen()).toBe(true)
+
+    push('hello\n')
+    await settle()
+    expect(after.getSnapshot().lines.map((line) => line.text)).toEqual(['hello'])
+
+    await after.detach()
+  })
+
   test('notices when the stream ends under it', async () => {
     const { monitor, finish, lines } = await watch()
 
@@ -119,6 +209,7 @@ describe('serial monitor', () => {
 
     expect(monitor.getSnapshot().status).toBe('off')
     expect(monitor.getSnapshot().error).toBe('The board went away')
+    expect(monitor.lostPort).toBe(true)
     expect(lines().at(-1)).toBe('— disconnected —')
   })
 })
