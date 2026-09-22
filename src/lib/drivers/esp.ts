@@ -6,7 +6,7 @@
 
 import SparkMD5 from 'spark-md5'
 import { parseElf } from '../image/elf'
-import { ESP_CHIPS, elfToEspImage } from '../image/esp-image'
+import { ESP_CHIPS, ESP_FLASH_BASE, elfToEspImage, isFullFlashImage } from '../image/esp-image'
 import { hex, totalBytes, type Segment } from '../image/segments'
 import { UF2_FAMILIES, parseUf2, uf2Families, uf2Segments } from '../image/uf2'
 import type { Binary, LogLevel } from '../types'
@@ -30,8 +30,19 @@ async function prepare(
   log: (level: LogLevel, message: string) => void,
 ): Promise<Segment[]> {
   switch (binary.format) {
-    case 'bin':
+    case 'bin': {
+      // Writing a whole-flash image at the app offset puts a second bootloader
+      // in the app partition. The real bootloader then loads it over the RAM it
+      // is running from and the board resets forever, so stop rather than flash.
+      if (isFullFlashImage(binary.data) && espOffset !== ESP_FLASH_BASE) {
+        throw new Error(
+          `This .bin holds a partition table at 0x8000, so it covers the whole flash and must be written at 0x0, not ${hex(espOffset)}`,
+        )
+      }
+
+      log('info', `BIN written at ${hex(espOffset)}`)
       return [{ address: espOffset, data: binary.data }]
+    }
 
     case 'uf2': {
       const blocks = parseUf2(binary.data)

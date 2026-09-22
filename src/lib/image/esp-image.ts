@@ -32,6 +32,24 @@ export const ESP_CHIPS: Record<string, EspChip> = {
 /** Default location of the factory app partition in the standard partition tables. */
 export const ESP_APP_OFFSET = 0x10000
 
+/** Where a whole-flash image starts: bootloader, partition table, otadata and app in one file. */
+export const ESP_FLASH_BASE = 0x0
+
+const PARTITION_TABLE_OFFSET = 0x8000
+
+/**
+ * A bare app image is just code, so 0x8000 holds whatever the linker put there.
+ * The 0xAA50 partition-table magic sitting at that offset instead means the file
+ * spans the flash from 0x0 and must be written there, not at the app offset.
+ */
+export function isFullFlashImage(data: Uint8Array) {
+  return (
+    data.length > PARTITION_TABLE_OFFSET + 1 &&
+    data[PARTITION_TABLE_OFFSET] === 0xaa &&
+    data[PARTITION_TABLE_OFFSET + 1] === 0x50
+  )
+}
+
 const IMAGE_MAGIC = 0xe9
 const CHECKSUM_SEED = 0xef
 const IROM_ALIGN = 0x10000

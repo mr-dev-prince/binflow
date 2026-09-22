@@ -81,8 +81,13 @@ export function FirmwareStep({ binary, reading, disabled, espOffset, onEspOffset
                 defaultValue={`0x${espOffset.toString(16).toUpperCase()}`}
                 disabled={disabled}
                 inputMode="text"
+                // Remount per file so the box shows the offset detected for it,
+                // which an uncontrolled input would otherwise keep from the last one.
+                key={`${binary.digest}:${espOffset}`}
                 onChange={(event) => {
-                  const parsed = Number(event.target.value.trim())
+                  const raw = event.target.value.trim()
+                  if (!raw) return // an empty box parses as 0, which is a real offset
+                  const parsed = Number(raw)
                   if (Number.isFinite(parsed) && parsed >= 0 && parsed % 0x1000 === 0) onEspOffset(parsed)
                 }}
                 spellCheck={false}

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { ELF_MACHINE, SHT_PROGBITS } from './elf'
 import { parseElf } from './elf'
 import { buildElf, pattern } from './elf-fixture'
-import { ESP_CHIPS, elfToEspImage, isEspFlashAddress } from './esp-image'
+import { ESP_CHIPS, elfToEspImage, isEspFlashAddress, isFullFlashImage } from './esp-image'
 
 const IROM_ALIGN = 0x10000
 
@@ -89,5 +89,30 @@ describe('elfToEspImage', () => {
   test('refuses the wrong architecture', async () => {
     const riscv = buildElf({ machine: ELF_MACHINE.RISCV, entry: 0, sections: [], segments: [] })
     await expect(elfToEspImage(parseElf(riscv), chip)).rejects.toThrow('RISC-V')
+  })
+})
+
+describe('isFullFlashImage', () => {
+  function imageWith(bytes: Record<number, number>, length = 0x9000) {
+    const data = new Uint8Array(length)
+    data[0] = 0xe9
+    for (const [offset, value] of Object.entries(bytes)) data[Number(offset)] = value
+    return data
+  }
+
+  test('an app image has no partition table at 0x8000', () => {
+    expect(isFullFlashImage(imageWith({ 0x8000: 0x72, 0x8001: 0x5f }))).toBe(false)
+  })
+
+  test('the 0xAA50 magic at 0x8000 marks a whole-flash image', () => {
+    expect(isFullFlashImage(imageWith({ 0x8000: 0xaa, 0x8001: 0x50 }))).toBe(true)
+  })
+
+  test('a file too short to reach 0x8000 is not a whole-flash image', () => {
+    expect(isFullFlashImage(imageWith({}, 0x8001))).toBe(false)
+  })
+
+  test('half the magic is not the magic', () => {
+    expect(isFullFlashImage(imageWith({ 0x8000: 0xaa, 0x8001: 0x51 }))).toBe(false)
   })
 })
